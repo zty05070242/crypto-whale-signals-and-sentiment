@@ -1,0 +1,40 @@
+# Data files
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.pkl
+*.h5
+!data/README.md
+
+# API keys
+.env
+config.local.py
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+.venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Model artefacts
+results/models/*.pkl
+results/cache/
+
+# Logs
+*.log
+logs/
