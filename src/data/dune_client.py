@@ -24,9 +24,10 @@ import config
 
 def _auth_header() -> dict[str, str]:
     """Return the HTTP header Dune requires on every authenticated request."""
-    if not config.DUNE_API_KEY:
-        raise ValueError("DUNE_API_KEY is not set. Add it to your .env file.")
-    return {"X-Dune-API-Key": config.DUNE_API_KEY}
+    raise RuntimeError(
+        "Dune API credits are exhausted. Do not call the Dune API. "
+        "All data is available locally — see docs/project_arc.md."
+    )
 
 # ---------------------------------------------------------------------------
 # Public API

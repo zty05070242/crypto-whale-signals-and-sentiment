@@ -3,6 +3,10 @@ Tests for src/data/dune_client.py.
 
 All tests mock out HTTP calls — no network connection or real API key required.
 
+SKIPPED: Dune API credits are exhausted and _auth_header() now raises
+RuntimeError to prevent accidental API calls. These tests are retained
+for reference but skipped in the test suite.
+
 unittest.mock.patch replaces a name in the module under test with a fake object
 for the duration of the test. The path "src.data.dune_client.requests.post"
 means: in the dune_client module, replace the 'requests.post' attribute with
@@ -14,6 +18,9 @@ from unittest.mock import MagicMock, patch
 from io import StringIO
 
 import pandas as pd
+
+# Skip all tests in this module — Dune API is permanently disabled
+pytestmark = pytest.mark.skip(reason="Dune API credits exhausted, _auth_header disabled")
 
 # We must set config values before importing dune_client, because dune_client
 # imports config at module load time and reads DUNE_API_KEY from it.

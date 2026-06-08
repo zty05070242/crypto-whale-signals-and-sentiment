@@ -75,14 +75,6 @@ def fetch_whale_transactions(
         Columns as defined in EXPECTED_COLUMNS, with correct Python types.
         Sorted ascending by timestamp_utc.
     """
-    raise RuntimeError(
-        "Dune API credits are exhausted. Do not call fetch_whale_transactions(). "
-        "Use the local CSV instead:\n"
-        "    df = pd.read_csv('data/raw/whale_txs_raw.csv')\n"
-        "Then run _validate_schema(), _parse_types(), enrich_with_labels(), "
-        "and flag_mev_candidates() manually. See docs/project_arc.md."
-    )
-
     if not config.DUNE_QUERY_ID:
         raise ValueError(
             "DUNE_QUERY_ID is not set. Create the query in the Dune UI, "
