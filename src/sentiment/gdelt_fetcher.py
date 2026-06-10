@@ -1,15 +1,15 @@
 """
 GDELT news article fetcher for crypto sentiment analysis.
 
-Queries the GDELT DOC 2.0 API day by day to collect English-language news
-headlines mentioning Ethereum, Bitcoin, or crypto. The titles are later
-scored with VADER for sentiment.
+Queries the GDELT DOC 2.0 API to collect English-language news headlines
+mentioning Ethereum, Bitcoin, or crypto. Each day is split into 6-hour
+windows (00-06, 06-12, 12-18, 18-24) to stay under the 250-article cap
+per request and ensure coverage across the full day.
 
 GDELT constraints:
-  - Rate limit: 1 request per 5 seconds (we use 6s to be safe).
+  - Rate limit: 1 request per 5 seconds (we use 8s to be safe).
   - Max 250 articles per request.
-  - Rolling 3-month search window, but historical queries with
-    startdatetime/enddatetime work for any date back to 2017.
+  - Historical queries with startdatetime/enddatetime work back to 2017.
 
 The fetcher saves progress incrementally to a CSV after each day, so an
 interruption does not lose already-fetched data.
@@ -35,11 +35,18 @@ GDELT_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 # Parentheses are required by GDELT for OR queries.
 DEFAULT_QUERY = "(ethereum OR bitcoin OR crypto)"
 
-# GDELT rate limit is 1 request per 5 seconds. We use 6 to be safe.
-REQUEST_DELAY_SECONDS = 6
+# Delay between requests. GDELT's stated limit is 5s, but it throttles
+# more aggressively after bursts. 8s balances speed vs reliability.
+REQUEST_DELAY_SECONDS = 8
 
-# Max articles GDELT returns per request.
-MAX_RECORDS_PER_REQUEST = 250
+# Articles per window. Set below 250 to keep responses small and reduce
+# rate-limiting. 50 per 6-hour window = up to 200 per day, well
+# distributed across the clock.
+MAX_RECORDS_PER_WINDOW = 50
+
+# 6-hour windows within each day (hour boundaries).
+# Each tuple is (start_hour, end_hour).
+DAY_WINDOWS = [(0, 6), (6, 12), (12, 18), (18, 24)]
 
 # Default output path for raw article data.
 DEFAULT_OUTPUT_PATH: Path = config.ROOT_DIR / "data" / "raw" / "gdelt_articles.csv"
@@ -57,10 +64,11 @@ def fetch_date_range(
     resume: bool = True,
 ) -> pd.DataFrame:
     """
-    Fetch GDELT articles day by day from start to end (inclusive).
+    Fetch GDELT articles for each day from start to end (inclusive).
 
-    Saves progress incrementally to output_path after each day, so the
-    process can be interrupted and resumed without losing data.
+    Each day is split into 4 x 6-hour windows to get broad coverage
+    without hitting the 250-article cap. Saves progress incrementally
+    so the process can be interrupted and resumed.
 
     Parameters
     ----------
@@ -111,27 +119,22 @@ def fetch_date_range(
         return existing_df
 
     print(f"Fetching {total} days from GDELT ({start} to {end})...")
+    print(f"  {len(DAY_WINDOWS)} windows/day, {MAX_RECORDS_PER_WINDOW} articles/window")
 
     for i, day in enumerate(dates_to_fetch):
-        articles = fetch_single_day(day, query=query)
+        day_articles = _fetch_day_windowed(day, query=query)
 
-        if articles is not None and len(articles) > 0:
-            # Tag each row with the calendar date we queried for
-            articles["fetch_date"] = day.isoformat()
-            all_dfs.append(articles)
+        if day_articles is not None and len(day_articles) > 0:
+            day_articles["fetch_date"] = day.isoformat()
+            all_dfs.append(day_articles)
 
         # Save progress after each day
         if all_dfs:
             combined = pd.concat(all_dfs, ignore_index=True)
             combined.to_csv(save_path, index=False)
 
-        progress = f"[{i + 1}/{total}]"
-        count = len(articles) if articles is not None else 0
-        print(f"  {progress} {day.isoformat()}: {count} articles")
-
-        # Rate limit: wait between requests
-        if i < total - 1:
-            time.sleep(REQUEST_DELAY_SECONDS)
+        count = len(day_articles) if day_articles is not None else 0
+        print(f"  [{i + 1}/{total}] {day.isoformat()}: {count} articles")
 
     result = pd.concat(all_dfs, ignore_index=True)
     result.to_csv(save_path, index=False)
@@ -139,18 +142,68 @@ def fetch_date_range(
     return result
 
 
-def fetch_single_day(
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_day_windowed(
     day: date,
     query: str = DEFAULT_QUERY,
-    max_retries: int = 3,
 ) -> Optional[pd.DataFrame]:
     """
-    Fetch articles from GDELT for a single calendar day.
+    Fetch articles for a single day using 6-hour windows.
+
+    Makes 4 requests per day (00-06, 06-12, 12-18, 18-24) and combines
+    the results. This ensures coverage across the full day rather than
+    only getting the first 250 articles (which skew toward one time zone).
 
     Parameters
     ----------
     day : date
         The date to query.
+    query : str
+        GDELT search terms.
+
+    Returns
+    -------
+    pd.DataFrame or None
+        Combined articles from all windows. None if all windows failed.
+    """
+    window_dfs = []
+
+    for start_hour, end_hour in DAY_WINDOWS:
+        df = _fetch_single_window(day, start_hour, end_hour, query=query)
+        if df is not None and len(df) > 0:
+            window_dfs.append(df)
+
+        # Rate limit between each window request
+        time.sleep(REQUEST_DELAY_SECONDS)
+
+    if not window_dfs:
+        return pd.DataFrame()
+
+    # pd.concat stacks the DataFrames from each window vertically
+    return pd.concat(window_dfs, ignore_index=True)
+
+
+def _fetch_single_window(
+    day: date,
+    start_hour: int,
+    end_hour: int,
+    query: str = DEFAULT_QUERY,
+    max_retries: int = 5,
+) -> Optional[pd.DataFrame]:
+    """
+    Fetch articles from GDELT for a single time window within a day.
+
+    Parameters
+    ----------
+    day : date
+        The date to query.
+    start_hour : int
+        Start hour (0-23).
+    end_hour : int
+        End hour (1-24). 24 means midnight of the next day.
     query : str
         GDELT search terms.
     max_retries : int
@@ -163,13 +216,17 @@ def fetch_single_day(
         Returns None if the request fails after retries.
     """
     # GDELT datetime format: YYYYMMDDHHmmSS
-    start_dt = day.strftime("%Y%m%d") + "000000"
-    end_dt = day.strftime("%Y%m%d") + "235959"
+    start_dt = day.strftime("%Y%m%d") + f"{start_hour:02d}0000"
+    if end_hour == 24:
+        # Midnight of next day — use 235959 of current day
+        end_dt = day.strftime("%Y%m%d") + "235959"
+    else:
+        end_dt = day.strftime("%Y%m%d") + f"{end_hour:02d}0000"
 
     params = {
         "query": query,
         "mode": "ArtList",
-        "maxrecords": MAX_RECORDS_PER_REQUEST,
+        "maxrecords": MAX_RECORDS_PER_WINDOW,
         "format": "json",
         "startdatetime": start_dt,
         "enddatetime": end_dt,
@@ -186,29 +243,28 @@ def fetch_single_day(
                     return pd.DataFrame()
                 # Convert list of dicts to DataFrame, keeping only useful columns
                 df = pd.DataFrame(articles)
-                # Select and rename columns we need
                 keep_cols = ["title", "url", "seendate", "domain",
                              "language", "sourcecountry"]
-                # Only keep columns that exist (some may be missing)
                 available = [c for c in keep_cols if c in df.columns]
                 return df[available]
 
             if resp.status_code == 429:
-                # Rate limited — wait longer and retry
                 wait = REQUEST_DELAY_SECONDS * (attempt + 2)
-                print(f"    Rate limited, waiting {wait}s (attempt {attempt + 1})...")
+                print(f"    Rate limited ({start_hour:02d}-{end_hour:02d}), "
+                      f"waiting {wait}s (attempt {attempt + 1})...")
                 time.sleep(wait)
                 continue
 
-            # Other error — log and return None
-            print(f"    HTTP {resp.status_code} for {day}: {resp.text[:200]}")
+            print(f"    HTTP {resp.status_code} for {day} "
+                  f"{start_hour:02d}-{end_hour:02d}: {resp.text[:200]}")
             return None
 
         except requests.RequestException as e:
-            print(f"    Request error for {day}: {e}")
+            print(f"    Request error for {day} {start_hour:02d}-{end_hour:02d}: {e}")
             if attempt < max_retries - 1:
                 time.sleep(REQUEST_DELAY_SECONDS)
             continue
 
-    print(f"    Failed after {max_retries} retries for {day}")
+    print(f"    Failed after {max_retries} retries for {day} "
+          f"{start_hour:02d}-{end_hour:02d}")
     return None
