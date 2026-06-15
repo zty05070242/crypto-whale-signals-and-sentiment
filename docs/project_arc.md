@@ -49,13 +49,28 @@ Results on real data (292,445 transactions, 2023-01-01 to 2024-12-31):
   is_contract_call (19%).
 - Look-ahead safe: sender history uses cumcount (only prior rows).
 
-### Phase 3 -- Sentiment Pipeline (NEXT)
+### Phase 3 -- Sentiment Pipeline (COMPLETE)
 
-Reddit (r/CryptoCurrency, r/Bitcoin, r/Ethereum) and crypto news headlines
-(CryptoPanic) scored hourly using VADER sentiment. Aggregated to match the
-hourly timestamp of whale transactions.
+Bitcoin news headlines (Kaggle dataset, 11,295 articles Oct 2021 - Sep 2024)
+scored with VADER sentiment. Filtered to whale data overlap window (Jan 2023 -
+Sep 2024, 5,906 articles), aggregated into 3,474 hourly bins.
 
-- Output: hourly sentiment scores aligned to whale transaction timestamps.
+Data source: Kaggle "Sentiment Analysis of Bitcoin News (2021-2024)" dataset.
+Chosen over GDELT (rate-limited, IP-banned), Reddit (API paywalled),
+CryptoPanic (API paywalled), CoinDesk (API retired).
+
+Two sentiment signals available:
+- VADER compound score (lexicon-based, transparent, reproducible)
+- RoBERTa score (pre-computed in dataset, DistilRoBERTa fine-tuned on
+  financial news)
+- Correlation between the two: 0.313 (weak agreement -- complementary signals)
+
+- Output: `data/processed/hourly_sentiment.csv` (hourly aggregated sentiment),
+  `data/processed/bitcoin_news_scored.csv` (per-article scores).
+- Key files: `src/sentiment/vader_scorer.py`, `src/sentiment/aggregator.py`,
+  `scripts/run_sentiment_pipeline.py`
+- Caveat: 1.7 articles/hour average is sparse. Phase 4 must forward-fill
+  sentiment for hours with no articles (with decay).
 - Why this matters: whale movements in isolation are noisy. If a whale deposits
   to an exchange during strongly negative sentiment, the selling pressure signal
   is stronger than the same transaction during positive sentiment.
@@ -97,11 +112,11 @@ coverage to unknown->unknown transactions.
 
 Update this section at the end of each working session.
 
-**Last session: 2026-06-05**
-- Phase 2 fully complete (94 total tests passing).
-- Real Dune data downloaded: 292,445 rows (2023-2024) saved to
-  data/raw/whale_txs_raw.csv and data/processed/whale_txs.csv.
-- Dune API credits exhausted. DO NOT run dune_client.py or
-  whale_fetcher.py -- all future work uses local CSV files only.
-- Classifier results on real data: 71% accuracy, 76% unlabelled.
-- Next step: Phase 3 -- sentiment pipeline (Reddit + CryptoPanic + VADER).
+**Last session: 2026-06-15**
+- Phase 3 complete (105 tests passing, 10 skipped).
+- Sentiment data: Kaggle Bitcoin news dataset, 5,906 articles in overlap window.
+- Two sentiment scores: VADER (ours) and RoBERTa (pre-computed). Correlation 0.313.
+- Hourly sentiment: 3,474 bins saved to data/processed/hourly_sentiment.csv.
+- Dune API credits exhausted. DO NOT run dune_client.py or whale_fetcher.py.
+- Next step: Phase 4 -- price impact prediction. Need ETH price data (hourly),
+  merge whale transactions + sentiment + price, build predictive model.
