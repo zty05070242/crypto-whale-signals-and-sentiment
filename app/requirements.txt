@@ -1,0 +1,9 @@
+# Dependencies for the deployed Streamlit dashboard ONLY.
+# The dashboard renders from app/dashboard_data.json and imports nothing from
+# the wider project, so it needs just these three packages. Keeping this list
+# minimal makes Streamlit Community Cloud builds fast and reliable.
+#
+# (The full research pipeline's dependencies live in the repo-root
+#  requirements.txt; they are not needed to run the dashboard.)
+streamlit>=1.30.0
+plotly>=5.17.0

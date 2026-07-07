@@ -1,511 +1,466 @@
 """
 Streamlit dashboard: Are Ethereum Whales Smart Money?
 
-Visualises the event study results -- hit rates, returns, and
-sentiment-conditioned analysis.
+Terminal-research aesthetic over a rigorous event study. Renders entirely from
+a pre-computed artefact (`app/dashboard_data.json`) built by
+`scripts/build_dashboard_data.py`. This keeps the app fast and lets it deploy
+to Streamlit Community Cloud without the 187 MB raw dataset.
 
-Run with:
+Run locally:
     streamlit run app/dashboard.py
+
+Rebuild the data after the underlying dataset changes:
+    python scripts/build_dashboard_data.py
 """
 
-import sys
+import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-
-import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-import config
-from src.features.feature_engineer import assign_transaction_label
-
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
-
 st.set_page_config(
-    page_title="Whale Signals Dashboard",
-    page_icon="whale",
+    page_title="Whale Signals Terminal",
+    page_icon="\U0001F4C8",
     layout="wide",
 )
 
+DATA_PATH = Path(__file__).resolve().parent / "dashboard_data.json"
+
 # ---------------------------------------------------------------------------
-# Data loading (cached so it only runs once)
+# Theme constants (shared by CSS and Plotly so the whole surface is consistent)
+# ---------------------------------------------------------------------------
+
+BG = "#0d1117"
+PANEL = "#161b22"
+BORDER = "#30363d"
+TEXT = "#c9d1d9"
+MUTED = "#8b949e"
+GREEN = "#26a69a"
+RED = "#ef5350"
+BLUE = "#58a6ff"
+GREY = "#484f58"
+GRID = "#21262d"
+MONO = "'SFMono-Regular', 'JetBrains Mono', 'Menlo', monospace"
+
+
+def style_fig(fig: go.Figure, height: int = 400) -> go.Figure:
+    """Apply the terminal theme to a Plotly figure in place."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=MONO, color=TEXT, size=12),
+        height=height,
+        # Roomy top margin holds the title (left) and the legend (right) on one
+        # band so neither collides with the plot, its labels, or each other.
+        margin=dict(l=55, r=25, t=70, b=55),
+        title=dict(font=dict(family=MONO, color=TEXT, size=14),
+                   x=0, xanchor="left", y=0.97, yanchor="top"),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=MUTED),
+                    orientation="h", yanchor="bottom", y=1.02,
+                    x=1, xanchor="right"),
+        bargap=0.28,
+    )
+    fig.update_xaxes(gridcolor=GRID, zerolinecolor=BORDER, linecolor=BORDER)
+    fig.update_yaxes(gridcolor=GRID, zerolinecolor=BORDER, linecolor=BORDER)
+    return fig
+
+
+def edge_colour(edge: float, hi: float = 1.5) -> str:
+    """Colour a bar by whether the whale edge clears the base rate."""
+    e = edge or 0
+    if e > hi:
+        return GREEN
+    if e < -hi:
+        return RED
+    return GREY
+
+
+def z(v) -> float:
+    """Coerce a possibly-null aggregate to a plottable number."""
+    return 0.0 if v is None else float(v)
+
+
+# ---------------------------------------------------------------------------
+# Data
 # ---------------------------------------------------------------------------
 
 @st.cache_data
-def load_data():
-    """Load and prepare all data for the dashboard."""
-    whale = pd.read_csv(config.PROCESSED_DATA_DIR / "whale_txs.csv")
-    prices = pd.read_csv(config.PROCESSED_DATA_DIR / "eth_prices_hourly.csv")
-    funding = pd.read_csv(config.PROCESSED_DATA_DIR / "eth_funding_rate.csv")
-    fng = pd.read_csv(config.PROCESSED_DATA_DIR / "fear_greed_daily.csv")
-
-    whale["timestamp_utc"] = pd.to_datetime(whale["timestamp_utc"], utc=True)
-    prices["timestamp_utc"] = pd.to_datetime(prices["timestamp_utc"], utc=True)
-    funding["timestamp_utc"] = pd.to_datetime(
-        funding["timestamp_utc"], utc=True, format="ISO8601"
-    )
-    fng["date"] = pd.to_datetime(fng["date"], utc=True)
-
-    whale = assign_transaction_label(whale)
-    whale["hour_utc"] = whale["timestamp_utc"].dt.floor("h")
-
-    # Merge funding rate onto whale transactions
-    funding_sorted = funding.sort_values("timestamp_utc")
-    whale = pd.merge_asof(
-        whale.sort_values("hour_utc"),
-        funding_sorted[["timestamp_utc", "funding_rate"]].rename(
-            columns={"timestamp_utc": "hour_utc"}
-        ),
-        on="hour_utc",
-        direction="backward",
-    )
-    whale["funding_rate"] = whale["funding_rate"].fillna(0)
-
-    # Merge FnG onto whale transactions
-    whale["_date"] = whale["timestamp_utc"].dt.floor("D")
-    fng_m = fng.rename(columns={"date": "_date"}).sort_values("_date")
-    whale = pd.merge_asof(
-        whale.sort_values("_date"),
-        fng_m[["_date", "fng_value"]],
-        on="_date",
-        direction="backward",
-    )
-    whale["fng_value"] = whale["fng_value"].fillna(50)
-    whale.drop(columns="_date", inplace=True)
-
-    # Compute forward returns at multiple horizons
-    price_lookup = prices.set_index("timestamp_utc")["close"].to_dict()
-
-    for h in [1, 6, 12, 24, 36, 48, 72]:
-        offset = pd.Timedelta(hours=h)
-        whale[f"fwd_{h}h"] = whale["hour_utc"].apply(
-            lambda ts, _o=offset: (
-                price_lookup.get(ts + _o, np.nan) - price_lookup.get(ts, np.nan)
-            )
-            / price_lookup.get(ts, np.nan)
-            if price_lookup.get(ts) and price_lookup.get(ts + _o)
-            else np.nan
-        )
-
-    # Compute base rates for all hours
-    all_prices = prices.copy()
-    all_prices = pd.merge_asof(
-        all_prices,
-        funding_sorted[["timestamp_utc", "funding_rate"]],
-        on="timestamp_utc",
-        direction="backward",
-    )
-    all_prices["funding_rate"] = all_prices["funding_rate"].fillna(0)
-    all_prices["_date"] = all_prices["timestamp_utc"].dt.floor("D")
-    all_prices = pd.merge_asof(
-        all_prices.sort_values("_date"),
-        fng_m[["_date", "fng_value"]],
-        on="_date",
-        direction="backward",
-    )
-    all_prices["fng_value"] = all_prices["fng_value"].fillna(50)
-
-    for h in [1, 6, 12, 24, 36, 48, 72]:
-        offset = pd.Timedelta(hours=h)
-        all_prices[f"fwd_{h}h"] = all_prices["timestamp_utc"].apply(
-            lambda ts, _o=offset: (
-                price_lookup.get(ts + _o, np.nan) - price_lookup.get(ts, np.nan)
-            )
-            / price_lookup.get(ts, np.nan)
-            if price_lookup.get(ts) and price_lookup.get(ts + _o)
-            else np.nan
-        )
-
-    return whale, prices, all_prices, fng, funding
+def load_data() -> dict:
+    """Load the pre-computed aggregate artefact."""
+    with open(DATA_PATH) as f:
+        return json.load(f)
 
 
-whale, prices, all_prices, fng, funding = load_data()
+DATA = load_data()
+META = DATA["meta"]
+YEARS = DATA["years"]
+HORIZON_LABELS = DATA["horizon_labels"]
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Custom CSS: quant-terminal chrome
 # ---------------------------------------------------------------------------
 
-def compute_hit_rate(returns: pd.Series, direction: str) -> dict:
-    """Compute hit rate and return stats for a set of returns."""
-    returns = returns.dropna()
-    if len(returns) < 10:
-        return None
+st.markdown(
+    f"""
+    <style>
+    .stApp {{ background-color: {BG}; }}
+    html, body, [class*="css"] {{ font-family: {MONO}; }}
 
-    if direction == "up":
-        hits = (returns > 0).sum()
-        wins = returns[returns > 0]
-        losses = returns[returns <= 0]
-    else:
-        hits = (returns < 0).sum()
-        wins = returns[returns < 0]
-        losses = returns[returns >= 0]
-
-    return {
-        "n": len(returns),
-        "hits": int(hits),
-        "hit_rate": hits / len(returns),
-        "mean_return": returns.mean() * 100,
-        "win_mean": wins.mean() * 100 if len(wins) > 0 else 0,
-        "loss_mean": losses.mean() * 100 if len(losses) > 0 else 0,
-    }
-
+    .term-title {{
+        font-family: {MONO}; font-size: 2.0rem; font-weight: 700;
+        color: {TEXT}; letter-spacing: -0.5px; margin-bottom: 0.1rem;
+    }}
+    .term-sub {{
+        font-family: {MONO}; color: {MUTED}; font-size: 0.95rem;
+        margin-bottom: 0.4rem;
+    }}
+    .term-rule {{
+        border: none; border-top: 1px solid {BORDER};
+        margin: 0.6rem 0 1.2rem 0;
+    }}
+    h2 {{
+        font-family: {MONO} !important; color: {TEXT} !important;
+        border-left: 3px solid {GREEN}; padding-left: 0.6rem;
+        font-size: 1.35rem !important;
+    }}
+    [data-testid="stMetric"] {{
+        background-color: {PANEL}; border: 1px solid {BORDER};
+        border-radius: 4px; padding: 0.8rem 1rem;
+    }}
+    [data-testid="stMetricValue"] {{
+        font-family: {MONO}; color: {GREEN}; font-size: 1.7rem;
+    }}
+    [data-testid="stMetricLabel"] {{
+        font-family: {MONO}; color: {MUTED}; text-transform: uppercase;
+        font-size: 0.72rem; letter-spacing: 0.5px;
+    }}
+    [data-testid="stSidebar"] {{
+        background-color: {PANEL}; border-right: 1px solid {BORDER};
+    }}
+    .stTabs [data-baseweb="tab-list"] {{ gap: 2px; }}
+    .stTabs [data-baseweb="tab"] {{
+        font-family: {MONO}; background-color: {PANEL};
+        border: 1px solid {BORDER}; border-radius: 3px 3px 0 0;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
-st.sidebar.title("Filters")
+st.sidebar.markdown(f"<div style='font-family:{MONO};color:{GREEN};"
+                    f"font-weight:700;font-size:1.1rem'>WHALE SIGNALS</div>",
+                    unsafe_allow_html=True)
+st.sidebar.markdown(f"<div style='font-family:{MONO};color:{MUTED};"
+                    f"font-size:0.75rem;margin-bottom:1rem'>terminal // event study</div>",
+                    unsafe_allow_html=True)
 
 min_usd = st.sidebar.slider(
-    "Minimum transaction size (USD)",
-    min_value=1_000_000,
-    max_value=50_000_000,
-    value=1_000_000,
-    step=1_000_000,
-    format="$%d",
+    "MIN TX SIZE (USD)",
+    min_value=DATA["thresholds"][0], max_value=DATA["thresholds"][-1],
+    value=DATA["thresholds"][0], step=1_000_000, format="$%d",
 )
 
-filtered = whale[whale["usd_value"] >= min_usd]
+# The slider value keys straight into the pre-computed aggregates.
+B = DATA["by_threshold"][str(min_usd)]
 
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Transactions:** {len(filtered):,}")
-st.sidebar.markdown(
-    f"**Date range:** {filtered['timestamp_utc'].min().strftime('%Y-%m-%d')} "
-    f"to {filtered['timestamp_utc'].max().strftime('%Y-%m-%d')}"
-)
-
-cat_counts = filtered["tx_category"].value_counts()
-st.sidebar.markdown("**Categories:**")
-for cat, count in cat_counts.items():
-    st.sidebar.markdown(f"- {cat}: {count:,}")
+st.sidebar.markdown(f"<hr style='border-color:{BORDER}'>", unsafe_allow_html=True)
+st.sidebar.markdown(f"**TXNS** &nbsp; `{B['n_filtered']:,}`")
+st.sidebar.markdown(f"**SPAN** &nbsp; `{META['date_min']} → {META['date_max']}`")
+st.sidebar.markdown("**CATEGORIES**")
+for cat, count in B["category_counts"].items():
+    st.sidebar.markdown(f"`{cat:<20} {count:>7,}`")
 
 # ---------------------------------------------------------------------------
-# Title and overview
+# Header
 # ---------------------------------------------------------------------------
 
-st.title("Are Ethereum Whales Smart Money?")
+st.markdown('<div class="term-title">ARE ETHEREUM WHALES SMART MONEY?</div>',
+            unsafe_allow_html=True)
 st.markdown(
-    "Measuring whether large on-chain transactions (>$1M) predict ETH price "
-    "direction, and whether market sentiment moderates this relationship."
+    f'<div class="term-sub">Event study // {META["n_total"]:,} whale transactions // '
+    f'{META["date_min"]} → {META["date_max"]} // '
+    'do large on-chain moves predict ETH direction?</div>',
+    unsafe_allow_html=True,
 )
+st.markdown('<hr class="term-rule">', unsafe_allow_html=True)
 
-# Key metrics row
+base_24h = META["base_rate_24h"]
+dep_hit = z(B["deposit_hit_24h"])
+greed_hit = z(B["greed_deposit_hit_24h"])
+
 col1, col2, col3, col4 = st.columns(4)
-
-withdrawals = filtered[filtered["tx_category"] == "exchange_withdrawal"]
-deposits = filtered[filtered["tx_category"] == "exchange_deposit"]
-
-neg_fund_withdrawals = withdrawals[withdrawals["funding_rate"] < 0]["fwd_24h"].dropna()
-neg_fund_hit = (neg_fund_withdrawals > 0).mean() if len(neg_fund_withdrawals) > 0 else 0
-
-col1.metric("Total Transactions", f"{len(filtered):,}")
-col2.metric("Wallet Labels", "52,768")
-col3.metric(
-    "Best Hit Rate (24h)",
-    f"{neg_fund_hit:.1%}",
-    help="Whale withdrawals during negative funding rate",
-)
-col4.metric("Data Span", "2.5 years")
+col1.metric("Transactions", f"{B['n_filtered']:,}")
+col2.metric("Deposit Hit 24h", f"{dep_hit:.1f}%",
+            delta=f"{dep_hit - base_24h:+.1f}pp",
+            help="Share of deposits followed by a 24h price drop, vs base rate.")
+col3.metric("Deposits in Greed", f"{greed_hit:.1f}%",
+            help="Whale deposits when Fear & Greed > 75.")
+col4.metric("Base Rate 24h", f"{base_24h:.1f}%",
+            help="Any random hour: share followed by a 24h drop.")
 
 # ---------------------------------------------------------------------------
-# Section 1: Hit rate across horizons
+# Section 1: Deposit edge across horizons
 # ---------------------------------------------------------------------------
 
-st.markdown("---")
-st.header("Whale Edge Across Time Horizons")
+st.header("01 // Deposit edge grows with horizon")
 st.markdown(
-    "How long does the whale's informational advantage last? "
-    "We compare the whale withdrawal hit rate to the base rate "
-    "(any random hour during negative funding)."
+    f"<span style='color:{MUTED}'>Whale sellers are not day-trading. The edge "
+    "is thin at 24h but compounds out to months. They appear to price in "
+    "structural shifts well ahead of the market.</span>",
+    unsafe_allow_html=True,
 )
 
-horizons = [1, 6, 12, 24, 36, 48, 72]
-neg_withdrawals = withdrawals[withdrawals["funding_rate"] < 0]
-neg_all = all_prices[all_prices["funding_rate"] < 0]
-
-whale_hrs = []
-base_hrs = []
-edges = []
-
-for h in horizons:
-    col = f"fwd_{h}h"
-    w_returns = neg_withdrawals[col].dropna()
-    b_returns = neg_all[col].dropna()
-
-    w_hr = (w_returns > 0).mean() if len(w_returns) > 0 else 0.5
-    b_hr = (b_returns > 0).mean() if len(b_returns) > 0 else 0.5
-
-    whale_hrs.append(w_hr * 100)
-    base_hrs.append(b_hr * 100)
-    edges.append((w_hr - b_hr) * 100)
-
-fig_horizon = go.Figure()
-
-fig_horizon.add_trace(go.Bar(
-    x=[f"{h}h" for h in horizons],
-    y=edges,
-    name="Whale edge",
-    marker_color=["#2ecc71" if e > 2 else "#95a5a6" if e > 0 else "#e74c3c" for e in edges],
-    text=[f"+{e:.1f}%" if e > 0 else f"{e:.1f}%" for e in edges],
-    textposition="outside",
+dep_edges = [z(e) for e in B["deposit_edge_by_horizon"]]
+fig1 = go.Figure()
+fig1.add_trace(go.Bar(
+    x=HORIZON_LABELS, y=dep_edges,
+    marker_color=[edge_colour(e) for e in dep_edges],
+    marker_line_color=BORDER, marker_line_width=1,
+    text=[f"{e:+.1f}" for e in dep_edges], textposition="outside",
+    textfont=dict(family=MONO, color=TEXT),
 ))
-
-fig_horizon.add_hline(y=0, line_dash="dash", line_color="gray")
-
-fig_horizon.update_layout(
-    title="Whale Edge Over Base Rate (Withdrawals During Negative Funding)",
-    xaxis_title="Prediction Horizon",
-    yaxis_title="Edge (percentage points)",
-    yaxis_range=[min(edges) - 2, max(edges) + 3],
-    showlegend=False,
-    height=400,
+fig1.add_hline(y=0, line_dash="dot", line_color=MUTED)
+fig1.update_layout(
+    title="DEPOSIT EDGE OVER BASE RATE (unconditional)",
+    xaxis_title="HORIZON", yaxis_title="EDGE (pp)",
+    yaxis_range=[min(dep_edges) - 2, max(dep_edges) + 3], showlegend=False,
 )
+st.plotly_chart(style_fig(fig1), width='stretch')
 
-st.plotly_chart(fig_horizon, use_container_width=True)
+# ---------------------------------------------------------------------------
+# Section 2: Yearly stability (alpha decay)
+# ---------------------------------------------------------------------------
 
+st.header("02 // Yearly stability: alpha decay")
 st.markdown(
-    "The whale edge peaks at **12-24 hours** (+4.5-5.8%), then decays. "
-    "By 48 hours, whatever the whale knew is priced in."
+    f"<span style='color:{MUTED}'>Each year tested independently. The "
+    "withdrawal buy-signal died after 2024. The deposit sell-signal emerged in "
+    "2024 and strengthened into 2026 (out-of-sample).</span>",
+    unsafe_allow_html=True,
 )
 
-# ---------------------------------------------------------------------------
-# Section 2: Hit rates by sentiment condition
-# ---------------------------------------------------------------------------
+tab_dep_yr, tab_wd_yr = st.tabs(["DEPOSITS (sell)", "WITHDRAWALS (buy)"])
 
-st.markdown("---")
-st.header("Are Whales Smarter in Certain Sentiment Regimes?")
 
-tab_withdraw, tab_deposit = st.tabs(["Withdrawals (buy signal)", "Deposits (sell signal)"])
-
-conditions = {
-    "Negative funding": lambda df: df["funding_rate"] < 0,
-    "Extreme fear": lambda df: df["fng_value"] <= 25,
-    "Fear": lambda df: df["fng_value"] <= 45,
-    "Neutral": lambda df: (df["fng_value"] > 45) & (df["fng_value"] <= 55),
-    "Greed": lambda df: df["fng_value"] > 55,
-    "Extreme greed": lambda df: df["fng_value"] > 75,
-    "Positive funding": lambda df: df["funding_rate"] >= 0,
-}
-
-with tab_withdraw:
-    cond_names = []
-    hit_rates = []
-    base_rates = []
-    ns = []
-    colours = []
-
-    for cond_name, cond_fn in conditions.items():
-        subset = withdrawals[cond_fn(withdrawals)]["fwd_24h"].dropna()
-        base_subset = all_prices[cond_fn(all_prices)]["fwd_24h"].dropna()
-
-        if len(subset) < 30:
-            continue
-
-        hr = (subset > 0).mean() * 100
-        br = (base_subset > 0).mean() * 100
-
-        cond_names.append(cond_name)
-        hit_rates.append(hr)
-        base_rates.append(br)
-        ns.append(len(subset))
-        colours.append("#2ecc71" if hr - br > 2 else "#e74c3c" if hr - br < -2 else "#95a5a6")
-
-    fig_w = go.Figure()
-
-    fig_w.add_trace(go.Bar(
-        x=cond_names, y=hit_rates, name="Whale hit rate",
-        marker_color=colours,
-        text=[f"{h:.1f}%" for h in hit_rates],
-        textposition="outside",
+def yearly_bar(edges_by_year: dict, title: str, caption: str):
+    """One bar per year, coloured by whether the edge clears the base rate."""
+    vals = [z(edges_by_year[str(y)]) for y in YEARS]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[str(y) for y in YEARS], y=vals,
+        marker_color=[edge_colour(e, 1.0) for e in vals],
+        marker_line_color=BORDER, marker_line_width=1,
+        text=[f"{e:+.1f}" for e in vals], textposition="outside",
+        textfont=dict(family=MONO, color=TEXT),
     ))
-    fig_w.add_trace(go.Scatter(
-        x=cond_names, y=base_rates, name="Base rate",
-        mode="markers+lines", line=dict(color="black", dash="dash"),
-        marker=dict(size=8),
-    ))
-    fig_w.add_hline(y=50, line_dash="dot", line_color="gray",
-                    annotation_text="50% (random)")
-    fig_w.update_layout(
-        title="Withdrawal Hit Rate by Sentiment (24h horizon)",
-        yaxis_title="Hit rate (%)",
-        yaxis_range=[35, 75],
-        height=450,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig_w, use_container_width=True)
+    fig.add_hline(y=0, line_dash="dot", line_color=MUTED)
+    fig.update_layout(title=title, xaxis_title="YEAR", yaxis_title="EDGE (pp)",
+                      yaxis_range=[min(vals) - 3, max(vals) + 3], showlegend=False)
+    st.plotly_chart(style_fig(fig, 350), width='stretch')
+    st.caption(caption)
 
-    st.markdown(
-        "**Green** = whale edge above base rate. "
-        "**Red** = whale edge below base rate. "
-        "**Grey** = marginal. Dashed line = base rate for that condition."
-    )
 
-with tab_deposit:
-    cond_names_d = []
-    hit_rates_d = []
-    base_rates_d = []
-    colours_d = []
+with tab_dep_yr:
+    yearly_bar(B["yearly"]["deposit_edge"],
+               "DEPOSIT EDGE BY YEAR (24h, unconditional)",
+               "Deposit edge grew from roughly flat in 2023 to a clear positive edge in 2026 (out-of-sample).")
 
-    for cond_name, cond_fn in conditions.items():
-        subset = deposits[cond_fn(deposits)]["fwd_24h"].dropna()
-        base_subset = all_prices[cond_fn(all_prices)]["fwd_24h"].dropna()
-
-        if len(subset) < 30:
-            continue
-
-        hr = (subset < 0).mean() * 100  # deposit hit = price dropped
-        br = (base_subset < 0).mean() * 100
-
-        cond_names_d.append(cond_name)
-        hit_rates_d.append(hr)
-        base_rates_d.append(br)
-        colours_d.append("#2ecc71" if hr - br > 2 else "#e74c3c" if hr - br < -2 else "#95a5a6")
-
-    fig_d = go.Figure()
-
-    fig_d.add_trace(go.Bar(
-        x=cond_names_d, y=hit_rates_d, name="Whale hit rate",
-        marker_color=colours_d,
-        text=[f"{h:.1f}%" for h in hit_rates_d],
-        textposition="outside",
-    ))
-    fig_d.add_trace(go.Scatter(
-        x=cond_names_d, y=base_rates_d, name="Base rate",
-        mode="markers+lines", line=dict(color="black", dash="dash"),
-        marker=dict(size=8),
-    ))
-    fig_d.add_hline(y=50, line_dash="dot", line_color="gray",
-                    annotation_text="50% (random)")
-    fig_d.update_layout(
-        title="Deposit Hit Rate by Sentiment (24h horizon)",
-        yaxis_title="Hit rate (%)",
-        yaxis_range=[30, 65],
-        height=450,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig_d, use_container_width=True)
+with tab_wd_yr:
+    yearly_bar(B["yearly"]["withdrawal_edge_negfund"],
+               "WITHDRAWAL EDGE BY YEAR (24h, negative funding)",
+               "Withdrawal edge peaked around +10pp in 2024, then collapsed below zero by 2026.")
 
 # ---------------------------------------------------------------------------
-# Section 3: Return breakdown
+# Section 3: Threshold sensitivity
 # ---------------------------------------------------------------------------
 
-st.markdown("---")
-st.header("Return Breakdown: Wins vs Losses")
+st.header("03 // Threshold sensitivity")
 st.markdown(
-    "For whale withdrawals during negative funding (the strongest signal), "
-    "what do the winning and losing trades look like?"
+    rf"<span style='color:{MUTED}'>As ETH rose from ~\$1,200 to ~\$4,000+, a \$1M "
+    "transaction is fewer ETH and less conviction. Do larger tickets carry a "
+    "stronger signal?</span>",
+    unsafe_allow_html=True,
 )
 
-neg_wd_returns = neg_withdrawals["fwd_24h"].dropna()
-wins = neg_wd_returns[neg_wd_returns > 0]
-losses = neg_wd_returns[neg_wd_returns <= 0]
+TS = DATA["threshold_sensitivity"]
+tab_t_dep, tab_t_wd = st.tabs(["DEPOSITS // extreme greed", "WITHDRAWALS // neg funding"])
 
-col1, col2, col3 = st.columns(3)
 
-col1.metric("Win Rate", f"{len(wins)/len(neg_wd_returns):.1%}")
-col1.metric("Avg Win", f"+{wins.mean()*100:.2f}%")
-col1.metric("Median Win", f"+{wins.median()*100:.2f}%")
+def sensitivity_bar(rows: list, title: str):
+    """Edge vs minimum ticket size, with sample sizes annotated."""
+    labels = [f"${r['threshold'] // 1_000_000}M+" for r in rows]
+    vals = [z(r["edge"]) for r in rows]
+    ns = [r["n"] for r in rows]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=labels, y=vals,
+        marker_color=[edge_colour(e, 1.0) for e in vals],
+        marker_line_color=BORDER, marker_line_width=1,
+        text=[f"{e:+.1f}  n={n:,}" for e, n in zip(vals, ns)],
+        textposition="outside", textfont=dict(family=MONO, color=TEXT),
+    ))
+    fig.add_hline(y=0, line_dash="dot", line_color=MUTED)
+    fig.update_layout(title=title, xaxis_title="MIN TX SIZE", yaxis_title="EDGE (pp)",
+                      yaxis_range=[min(vals) - 2, max(vals) + 3], showlegend=False)
+    st.plotly_chart(style_fig(fig, 350), width='stretch')
 
-col2.metric("Loss Rate", f"{len(losses)/len(neg_wd_returns):.1%}")
-col2.metric("Avg Loss", f"{losses.mean()*100:.2f}%")
-col2.metric("Median Loss", f"{losses.median()*100:.2f}%")
 
-col3.metric("Total Signals", f"{len(neg_wd_returns):,}")
-col3.metric("Avg Return (all)", f"+{neg_wd_returns.mean()*100:.2f}%")
-col3.metric("After 0.1% Fees", f"+{(neg_wd_returns.mean()*100 - 0.1):.2f}%")
+with tab_t_dep:
+    sensitivity_bar(TS["deposit_greed"], "DEPOSIT EDGE BY THRESHOLD (extreme greed, 24h)")
 
-# Return distribution histogram
-fig_hist = go.Figure()
+with tab_t_wd:
+    sensitivity_bar(TS["withdrawal_negfund"], "WITHDRAWAL EDGE BY THRESHOLD (negative funding, 24h)")
 
-fig_hist.add_trace(go.Histogram(
-    x=wins * 100,
-    name="Wins (price rose)",
-    marker_color="#2ecc71",
-    opacity=0.7,
-    nbinsx=50,
-))
-fig_hist.add_trace(go.Histogram(
-    x=losses * 100,
-    name="Losses (price fell)",
-    marker_color="#e74c3c",
-    opacity=0.7,
-    nbinsx=50,
-))
+# ---------------------------------------------------------------------------
+# Section 4: Sentiment-conditioned hit rates
+# ---------------------------------------------------------------------------
 
-fig_hist.update_layout(
-    title="Distribution of 24h Returns (Withdrawals During Negative Funding)",
-    xaxis_title="24h Forward Return (%)",
-    yaxis_title="Count",
-    barmode="overlay",
-    height=400,
+st.header("04 // Sentiment-conditioned hit rates")
+
+tab_s_dep, tab_s_wd = st.tabs(["DEPOSITS (sell)", "WITHDRAWALS (buy)"])
+
+
+def sentiment_chart(rows: list, title: str, yrange: list):
+    """Whale hit-rate bars over a dashed base-rate reference line."""
+    names = [r["name"] for r in rows]
+    hits = [z(r["hit"]) for r in rows]
+    bases = [z(r["base"]) for r in rows]
+    cols = [edge_colour(h - b, 2.0) for h, b in zip(hits, bases)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=names, y=hits, name="whale hit rate", marker_color=cols,
+        marker_line_color=BORDER, marker_line_width=1,
+        text=[f"{h:.1f}" for h in hits], textposition="outside",
+        textfont=dict(family=MONO, color=TEXT),
+    ))
+    fig.add_trace(go.Scatter(
+        x=names, y=bases, name="base rate", mode="markers+lines",
+        line=dict(color=MUTED, dash="dash"), marker=dict(size=7, color=MUTED),
+    ))
+    fig.add_hline(y=50, line_dash="dot", line_color=GREY,
+                  annotation_text="50% (coin flip)", annotation_font_color=MUTED)
+    fig.update_layout(title=title, yaxis_title="HIT RATE (%)", yaxis_range=yrange)
+    fig = style_fig(fig, 470)
+    # Angle the regime labels so they never run into each other.
+    fig.update_xaxes(tickangle=-30, tickfont=dict(size=11))
+    fig.update_layout(margin=dict(l=55, r=25, t=70, b=90))
+    st.plotly_chart(fig, width='stretch')
+
+
+with tab_s_dep:
+    sentiment_chart(B["sentiment"]["deposit"], "DEPOSIT HIT RATE BY SENTIMENT (24h)", [30, 65])
+
+with tab_s_wd:
+    sentiment_chart(B["sentiment"]["withdrawal"], "WITHDRAWAL HIT RATE BY SENTIMENT (24h)", [35, 70])
+
+st.caption(
+    "Green = whale edge above base rate. Red = below. Grey = marginal. "
+    "Dashed line = base rate for that regime; dotted line = coin flip."
 )
 
-st.plotly_chart(fig_hist, use_container_width=True)
-
 # ---------------------------------------------------------------------------
-# Section 4: 100-trade simulation
+# Section 5: Return distribution
 # ---------------------------------------------------------------------------
 
-st.markdown("---")
-st.header("Theoretical 100-Trade Simulation")
+st.header("05 // Return distribution: deposits in extreme greed")
 
-win_pct = len(wins) / len(neg_wd_returns)
-n_wins = int(round(win_pct * 100))
-n_losses = 100 - n_wins
-avg_win = wins.mean() * 100
-avg_loss = losses.mean() * 100
-fee = 0.1
+RD = B["return_dist"]
+if RD:
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Hit Rate (price fell)", f"{z(RD['hit_rate']):.1f}%")
+    c1.metric("Avg Hit", f"{z(RD['avg_hit']):.2f}%")
+    c2.metric("Miss Rate", f"{z(RD['miss_rate']):.1f}%")
+    c2.metric("Avg Miss", f"+{z(RD['avg_miss']):.2f}%")
+    c3.metric("Signals", f"{RD['n']:,}")
+    c3.metric("Avg Return (all)", f"{z(RD['avg_all']):+.2f}%")
 
-gross_gain = n_wins * avg_win + n_losses * avg_loss
-net_gain = gross_gain - 100 * fee
+    # Reconstruct the histogram from shared bin edges + per-bin counts.
+    edges = RD["edges"]
+    centres = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
+    width = edges[1] - edges[0]
 
-sim_col1, sim_col2 = st.columns(2)
-
-with sim_col1:
-    st.markdown(f"""
-    | | Trades | Avg Return | Total |
-    |---|---|---|---|
-    | Wins | {n_wins} | +{avg_win:.2f}% | +{n_wins * avg_win:.1f}% |
-    | Losses | {n_losses} | {avg_loss:.2f}% | {n_losses * avg_loss:.1f}% |
-    | **Gross** | | | **+{gross_gain:.1f}%** |
-    | Fees | 100 x 0.1% | | -{100 * fee:.1f}% |
-    | **Net** | | | **+{net_gain:.1f}%** |
-    """)
-
-with sim_col2:
-    capital = 10000
-    final = capital * (1 + net_gain / 100)
-    st.metric("Starting Capital", f"${capital:,.0f}")
-    st.metric("Final Value", f"${final:,.0f}", delta=f"+${final - capital:,.0f}")
-    st.markdown(
-        "*Over ~2.5 years (negative funding is rare, ~9% of hours)*"
+    fig_hist = go.Figure()
+    fig_hist.add_trace(go.Bar(
+        x=centres, y=RD["hit_counts"], name="hit (price fell)",
+        marker_color=GREEN, marker_line_width=0, width=width, opacity=0.85,
+    ))
+    fig_hist.add_trace(go.Bar(
+        x=centres, y=RD["miss_counts"], name="miss (price rose)",
+        marker_color=RED, marker_line_width=0, width=width, opacity=0.85,
+    ))
+    fig_hist.add_vline(x=0, line_dash="dot", line_color=MUTED)
+    fig_hist.update_layout(
+        title="24h RETURNS AFTER WHALE DEPOSITS IN EXTREME GREED",
+        xaxis_title="24h FORWARD RETURN (%)", yaxis_title="COUNT",
+        barmode="overlay",
     )
+    st.plotly_chart(style_fig(fig_hist), width='stretch')
+else:
+    st.info("Not enough deposits above this threshold during extreme greed to plot.")
 
 # ---------------------------------------------------------------------------
-# Section 5: Limitations
+# Section 6: Asymmetry
 # ---------------------------------------------------------------------------
 
-st.markdown("---")
-st.header("Limitations")
+st.header("06 // The asymmetry: deposits won, withdrawals lost")
+st.markdown(
+    f"<span style='color:{MUTED}'>Withdrawal edge peaked early then collapsed. "
+    "Deposit edge was absent early then grew. One possible reading: whale-watching "
+    "tools broadcast buy signals far more than sell signals, leaving the deposit "
+    "edge un-arbitraged. Plausible, not proven.</span>",
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
-1. **Backtested, not live-tested.** Historical results do not guarantee future performance.
-2. **Negative funding is rare.** Only ~9% of hours — the strategy is idle most of the time.
-3. **Whale-specific edge is modest.** +4.5% above the base rate at 24h.
-4. **On-chain latency.** By the time you see the whale transaction and react, some edge may be gone.
-5. **Bull market bias.** ETH trended up over Jan 2023 - Jun 2025. Results may differ in prolonged bear markets.
-6. **No causal claim.** Whales predict direction, they do not cause price movements.
-7. **Survivorship bias in labels.** Unknown wallets may include unlabelled exchanges or institutions.
+dep_yr = [z(B["yearly"]["deposit_edge_uncond"][str(y)]) for y in YEARS]
+wd_yr = [z(B["yearly"]["withdrawal_edge_uncond"][str(y)]) for y in YEARS]
+
+fig_asym = go.Figure()
+fig_asym.add_trace(go.Bar(
+    x=[str(y) for y in YEARS], y=dep_yr, name="deposit edge",
+    marker_color=GREEN, marker_line_color=BORDER, marker_line_width=1,
+))
+fig_asym.add_trace(go.Bar(
+    x=[str(y) for y in YEARS], y=wd_yr, name="withdrawal edge",
+    marker_color=BLUE, marker_line_color=BORDER, marker_line_width=1,
+))
+fig_asym.add_hline(y=0, line_dash="dot", line_color=MUTED)
+fig_asym.update_layout(
+    title="DEPOSIT vs WITHDRAWAL EDGE BY YEAR (24h, unconditional)",
+    xaxis_title="YEAR", yaxis_title="EDGE (pp)", barmode="group",
+)
+st.plotly_chart(style_fig(fig_asym), width='stretch')
+
+# ---------------------------------------------------------------------------
+# Section 7: Limitations
+# ---------------------------------------------------------------------------
+
+st.header("07 // Limitations")
+st.markdown(r"""
+1. **Backtested, not live-tested.** Past results do not guarantee future ones.
+   If participants start following deposit signals, the edge would likely arbitrage away.
+2. **Modest at short horizons.** A +1 to +4pp edge at 24h is statistically
+   significant but economically marginal after costs and slippage.
+3. **Long-horizon windows overlap.** At 1 month+, thousands of events measure the
+   same price move. Hit rates are informative but p-values overstate significance.
+4. **No stop-loss modelling.** Long-horizon results assume holding to maturity.
+   A trade that ends +5% may have been -20% along the way.
+5. **Fixed USD threshold ignores ETH price growth.** \$1M was ~833 ETH in 2023
+   but only ~250 ETH in 2026, diluting the pool with smaller actors over time.
+6. **The withdrawal signal is dead.** Any strategy built on whale withdrawals
+   would have failed in 2025-2026.
 """)
 
-st.markdown("---")
+st.markdown('<hr class="term-rule">', unsafe_allow_html=True)
 st.caption(
-    "Data: 392,517 whale transactions (Jan 2023 - Jun 2025) | "
-    "52,768 labelled addresses | "
+    f"Data: {META['n_total']:,} whale transactions "
+    f"({META['date_min']} → {META['date_max']}) // "
+    f"{META['n_labels']:,} labelled addresses // "
     "Dune Analytics, Binance API, alternative.me"
 )

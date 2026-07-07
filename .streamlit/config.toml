@@ -1,0 +1,13 @@
+# Terminal-research theme: dark, professional, quant-terminal aesthetic.
+# Muted TradingView-style palette (not neon degen).
+
+[theme]
+base = "dark"
+primaryColor = "#26a69a"          # muted teal accent (TradingView green)
+backgroundColor = "#0d1117"        # near-black terminal background
+secondaryBackgroundColor = "#161b22"  # panel / sidebar background
+textColor = "#c9d1d9"              # off-white terminal text
+font = "monospace"
+
+[server]
+headless = true
