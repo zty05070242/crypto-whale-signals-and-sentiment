@@ -428,17 +428,35 @@ The deposit edge at 24h is small (+1.3%). At 1 month it is +4.8%. At 6 months, +
 ## Interactive Dashboard
 
 ```bash
+# Rebuild the pre-computed data (only needed after the underlying data changes)
+python scripts/build_dashboard_data.py
+
+# Launch the dashboard
 streamlit run app/dashboard.py
 ```
 
-Visualises hit rates, edge decay, sentiment conditioning, return distributions, and a theoretical trading simulation.
+Seven sections: deposit edge by horizon (1h to 6m), yearly stability (alpha
+decay, horizon-selectable), threshold sensitivity (horizon-selectable),
+sentiment-conditioned hit rates, a return-distribution regime explorer,
+the deposit-vs-withdrawal asymmetry by year (horizon-selectable), and
+limitations.
+
+The dashboard does not read the raw dataset at runtime. `scripts/build_dashboard_data.py`
+pre-computes every number it shows into `app/dashboard_data.json` (~480 KB),
+and `app/dashboard.py` reads only that file. This is what lets it deploy to
+Streamlit Community Cloud without the 187 MB raw whale dataset, which is
+gitignored and never committed.
 
 ## Repository Structure
 
 ```
 whale_signals/
 ├── app/
-│   └── dashboard.py            # Streamlit dashboard
+│   ├── dashboard.py             # Streamlit dashboard (reads dashboard_data.json only)
+│   ├── dashboard_data.json      # Pre-computed dashboard numbers (~480 KB, committed)
+│   └── requirements.txt         # Minimal deps for the Streamlit Cloud build
+├── .streamlit/
+│   └── config.toml              # Dark quant-terminal theme
 ├── data/
 │   ├── raw/                    # Raw data (gitignored)
 │   ├── processed/              # Cleaned datasets (gitignored)
@@ -455,7 +473,8 @@ whale_signals/
 │   ├── run_threshold_sensitivity.py  # Transaction size analysis
 │   ├── run_phase4_features.py  # Feature matrix builder
 │   ├── run_phase4_model.py     # ML walk-forward model
-│   └── run_sentiment_pipeline.py  # News sentiment scorer
+│   ├── run_sentiment_pipeline.py  # News sentiment scorer
+│   └── build_dashboard_data.py # Pre-computes app/dashboard_data.json
 ├── tests/                      # Unit tests
 ├── docs/                       # Design notes, project arc
 └── results/                    # Walk-forward CSV, threshold CSV, charts
@@ -479,7 +498,8 @@ python scripts/run_threshold_sensitivity.py
 # ML model (walk-forward Random Forest)
 python scripts/run_phase4_model.py
 
-# Launch interactive dashboard
+# Rebuild the dashboard's pre-computed data, then launch it
+python scripts/build_dashboard_data.py
 streamlit run app/dashboard.py
 ```
 

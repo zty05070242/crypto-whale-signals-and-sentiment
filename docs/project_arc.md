@@ -102,11 +102,55 @@ Feature importance shows price momentum dominates; whale features rank low.
   `scripts/run_walk_forward.py`, `scripts/run_threshold_sensitivity.py`
 - ML files: `src/features/phase4_features.py`, `src/models/price_predictor.py`
 
-### Phase 5 -- Dashboard and Write-up (COMPLETE)
+### Phase 5 -- Dashboard, Deployment, and Write-up (COMPLETE)
 
-Interactive Streamlit dashboard and research-format README.
+Interactive Streamlit dashboard, deployed publicly, and research-format README.
 
-- Dashboard: `app/dashboard.py`
+**Dashboard architecture:**
+The dashboard does not read the raw 646k-row dataset at runtime. Instead
+`scripts/build_dashboard_data.py` runs once locally, crunching the full
+dataset into `app/dashboard_data.json` (~480 KB): every hit rate, edge, and
+histogram the dashboard renders, pre-computed and rounded. `app/dashboard.py`
+imports only `streamlit` and `plotly` and reads this JSON, so it renders
+instantly and needs no pandas/numpy/web3 at runtime. This also solves
+deployment: the raw CSV is 187 MB and gitignored (too large and not meant for
+git), but the 480 KB JSON commits cleanly and is all Streamlit Community Cloud
+needs. Re-run the build script whenever the underlying data changes, then
+commit and push the regenerated JSON.
+
+**Dashboard content (7 sections):**
+1. Deposit edge across horizons (1h to 6m) -- shows the edge compounding over time.
+2. Yearly stability / alpha decay (deposits vs withdrawals), horizon-selectable.
+3. Threshold sensitivity ($1M to $10M+), horizon-selectable.
+4. Sentiment-conditioned hit rates across 7 regimes (fixed at 24h).
+5. Return distribution of deposits, with a regime dropdown (fixed at 24h) --
+   shows the signal is conditional: unconditional deposits sit near a coin
+   flip (50.5%); the bearish skew only appears in specific regimes.
+6. Deposit vs withdrawal edge asymmetry by year, horizon-selectable.
+7. Limitations (backtested-not-live, thin edge at short horizons, overlapping
+   long-horizon windows, no stop-loss modelling, threshold dilution, dead
+   withdrawal signal).
+
+Horizon selection was deliberately scoped to sections 2/3/6 and not 4/5:
+those two already carry a 7-regime chart and a regime dropdown, and stacking a
+horizon dimension on top would push some combinations into small-n territory,
+which is exactly the "overlapping windows overstate significance" risk in the
+limitations section.
+
+Visual theme: dark "quant terminal" styling (mono fonts, muted TradingView-style
+green/red, bordered metric cards) via `.streamlit/config.toml` and inline CSS --
+chosen deliberately over a neon "degen" look, to stay consistent with the
+project's honest-reporting framing while still reading as crypto-native product.
+
+**Deployment:** pushed to GitHub, deployed on Streamlit Community Cloud
+(`app/requirements.txt` holds the minimal streamlit+plotly dependency set for
+the cloud build). Repo was renamed on GitHub from `whale_signals` to
+`crypto-whale-signals-and-sentiment`; the local remote still points at the old
+name but GitHub's redirect keeps `git push` working.
+
+- Dashboard: `app/dashboard.py`, `app/dashboard_data.json`, `app/requirements.txt`
+- Build script: `scripts/build_dashboard_data.py`
+- Theme: `.streamlit/config.toml`
 - README with full results, methodology, and limitations.
 - Walk-forward results: `results/walk_forward_results.csv`
 - Threshold sensitivity: `results/threshold_sensitivity.csv`
@@ -136,4 +180,25 @@ Update this section at the end of each working session.
 - README rewritten with walk-forward results and threshold sensitivity.
 - Scripts: run_walk_forward.py, run_threshold_sensitivity.py added.
 - event_study.py vectorised (was timing out on 646k rows with .apply()).
-- Next steps: update dashboard with new results, potentially deploy.
+- Dashboard fully rewritten: dark quant-terminal theme, deposit-centric
+  (not withdrawal-centric), 7 sections covering horizons/years/thresholds/
+  sentiment/distribution/asymmetry/limitations. Forward returns vectorised.
+- Deployment architecture built: scripts/build_dashboard_data.py pre-computes
+  every dashboard number into app/dashboard_data.json (~480 KB), so the app
+  can deploy to Streamlit Community Cloud without the 187 MB gitignored raw
+  dataset. app/dashboard.py rewritten to read only this JSON (streamlit +
+  plotly only, no pandas at runtime).
+- Deployed to Streamlit Community Cloud (user-side deploy via
+  share.streamlit.io; live URL not yet recorded in this repo -- add it here
+  once confirmed).
+- Fixed a stale-@st.cache_data bug that crashed the live app after a redeploy
+  (KeyError: 'dist_conditions'): load_data() now keys its cache on the data
+  file's mtime so a new JSON always busts the old cached dict.
+- Added a return-distribution regime selector (section 5) and a horizon
+  selector for sections 2/3/6, so yearly stability, threshold sensitivity, and
+  the asymmetry chart can all be viewed at 1h through 6m, not just 24h.
+- Repo renamed on GitHub: whale_signals -> crypto-whale-signals-and-sentiment.
+- Next steps: record the live Streamlit Cloud URL in this file and the
+  README once available; consider whether section 4 (sentiment) or section 5
+  (distribution) ever warrant their own horizon control once more data
+  reduces the small-n risk at long horizons.
