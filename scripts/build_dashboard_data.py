@@ -186,32 +186,47 @@ DIST_CONDITIONS = {"unconditional": lambda df: pd.Series(True, index=df.index),
 # ---------------------------------------------------------------------------
 
 def build_base_rates(all_prices: pd.DataFrame, years: list[int]) -> dict:
-    """Market-wide base rates that every whale hit rate is compared against."""
-    base = {"horizon_down": {}, "yearly_down": {}, "yearly_up": {},
-            "yearly_up_negfund": {}, "sentiment_down": {}, "sentiment_up": {}}
+    """Market-wide base rates that every whale hit rate is compared against.
 
-    # Base rate of a price fall at each horizon
+    Yearly and threshold-sensitivity base rates are computed at every horizon
+    (sections 2, 3, 6 let the viewer pick a horizon). Sentiment base rates stay
+    24h-only (section 4 is not horizon-selectable, to avoid stacking a third
+    dimension onto an already-dense 7-regime chart).
+    """
+    base = {"horizon_down": {}, "yearly_down": {}, "yearly_up": {},
+            "yearly_up_negfund": {}, "sentiment_down": {}, "sentiment_up": {},
+            "greed_down": {}, "negfund_up": {}}
+
+    # Base rate of a price fall at each horizon (section 1)
     for label in HORIZON_LABELS:
         base["horizon_down"][label] = hit_pct(all_prices[f"fwd_{label}"], "down")
 
-    # Per-year base rates at 24h, both directions
-    for year in years:
-        yr = all_prices[all_prices["year"] == year]["fwd_24h"]
-        base["yearly_down"][str(year)] = hit_pct(yr, "down")
-        base["yearly_up"][str(year)] = hit_pct(yr, "up")
-        yr_neg = all_prices[(all_prices["year"] == year)
-                            & (all_prices["funding_rate"] < 0)]["fwd_24h"]
-        base["yearly_up_negfund"][str(year)] = hit_pct(yr_neg, "up")
+    # Per-year, per-horizon base rates, both directions (sections 2, 6)
+    for label in HORIZON_LABELS:
+        col = f"fwd_{label}"
+        base["yearly_down"][label] = {}
+        base["yearly_up"][label] = {}
+        base["yearly_up_negfund"][label] = {}
+        for year in years:
+            yr = all_prices[all_prices["year"] == year][col]
+            base["yearly_down"][label][str(year)] = hit_pct(yr, "down")
+            base["yearly_up"][label][str(year)] = hit_pct(yr, "up")
+            yr_neg = all_prices[(all_prices["year"] == year)
+                                & (all_prices["funding_rate"] < 0)][col]
+            base["yearly_up_negfund"][label][str(year)] = hit_pct(yr_neg, "up")
 
-    # Per-sentiment base rates at 24h, both directions
+    # Per-sentiment base rates at 24h only, both directions (section 4)
     for name, fn in CONDITIONS.items():
         sub = all_prices[fn(all_prices)]["fwd_24h"]
         base["sentiment_down"][name] = hit_pct(sub, "down")
         base["sentiment_up"][name] = hit_pct(sub, "up")
 
-    # Special conditioned base rates for the threshold-sensitivity section
-    base["greed_down"] = hit_pct(all_prices[all_prices["fng_value"] > 75]["fwd_24h"], "down")
-    base["negfund_up"] = hit_pct(all_prices[all_prices["funding_rate"] < 0]["fwd_24h"], "up")
+    # Conditioned base rates for threshold sensitivity, at every horizon (section 3)
+    for label in HORIZON_LABELS:
+        col = f"fwd_{label}"
+        base["greed_down"][label] = hit_pct(all_prices[all_prices["fng_value"] > 75][col], "down")
+        base["negfund_up"][label] = hit_pct(all_prices[all_prices["funding_rate"] < 0][col], "up")
+
     base["all_down_24h"] = hit_pct(all_prices["fwd_24h"], "down")
     return base
 
@@ -242,26 +257,34 @@ def build_for_threshold(whale: pd.DataFrame, base: dict, years: list[int]) -> di
         for label in HORIZON_LABELS
     ]
 
-    # Section 2 + 6: yearly edges
-    dep_edge, wd_edge_neg, dep_edge_uncond, wd_edge_uncond = {}, {}, {}, {}
-    for year in years:
-        y = str(year)
-        yr_dep = deposits[deposits["year"] == year]["fwd_24h"]
-        yr_wd = withdrawals[withdrawals["year"] == year]["fwd_24h"]
-        yr_wd_neg = withdrawals[(withdrawals["year"] == year)
-                                & (withdrawals["funding_rate"] < 0)]["fwd_24h"]
+    # Section 2 + 6: yearly edges, at every horizon (horizon-selectable)
+    block["yearly"] = {}
+    for label in HORIZON_LABELS:
+        col = f"fwd_{label}"
+        dep_edge, wd_edge_neg, wd_edge_uncond = {}, {}, {}
+        for year in years:
+            y = str(year)
+            yr_dep = deposits[deposits["year"] == year][col]
+            yr_wd = withdrawals[withdrawals["year"] == year][col]
+            yr_wd_neg = withdrawals[(withdrawals["year"] == year)
+                                    & (withdrawals["funding_rate"] < 0)][col]
 
-        dep_edge[y] = (r2(hit_pct(yr_dep, "down") - base["yearly_down"][y])
-                       if yr_dep.notna().sum() >= MIN_N else 0)
-        dep_edge_uncond[y] = dep_edge[y]
-        wd_edge_uncond[y] = (r2(hit_pct(yr_wd, "up") - base["yearly_up"][y])
-                             if yr_wd.notna().sum() >= MIN_N else 0)
-        wd_edge_neg[y] = (r2(hit_pct(yr_wd_neg, "up") - base["yearly_up_negfund"][y])
-                          if yr_wd_neg.notna().sum() >= MIN_N else 0)
+            dep_edge[y] = (r2(hit_pct(yr_dep, "down") - base["yearly_down"][label][y])
+                           if yr_dep.notna().sum() >= MIN_N else 0)
+            wd_edge_uncond[y] = (r2(hit_pct(yr_wd, "up") - base["yearly_up"][label][y])
+                                 if yr_wd.notna().sum() >= MIN_N else 0)
+            wd_edge_neg[y] = (r2(hit_pct(yr_wd_neg, "up") - base["yearly_up_negfund"][label][y])
+                              if yr_wd_neg.notna().sum() >= MIN_N else 0)
 
-    block["yearly"] = {"deposit_edge": dep_edge, "withdrawal_edge_negfund": wd_edge_neg,
-                       "deposit_edge_uncond": dep_edge_uncond,
-                       "withdrawal_edge_uncond": wd_edge_uncond}
+        # deposit_edge and deposit_edge_uncond are the same series (deposits
+        # have no separate "conditional" yearly cut); kept as two keys so the
+        # dashboard's section 2 and section 6 lookups stay symmetric with the
+        # withdrawal side, which does differ (negative-funding vs unconditional).
+        block["yearly"][label] = {
+            "deposit_edge": dep_edge, "deposit_edge_uncond": dep_edge,
+            "withdrawal_edge_negfund": wd_edge_neg,
+            "withdrawal_edge_uncond": wd_edge_uncond,
+        }
 
     # Section 4: sentiment hit rates (store hit + base so the chart draws both)
     def sentiment(source, direction, base_key):
@@ -295,25 +318,31 @@ def build_for_threshold(whale: pd.DataFrame, base: dict, years: list[int]) -> di
 # ---------------------------------------------------------------------------
 
 def build_threshold_sensitivity(whale: pd.DataFrame, base: dict) -> dict:
-    """Edge as a function of minimum ticket size, under two regimes."""
+    """Edge as a function of minimum ticket size, under two regimes, at every horizon."""
     deposits = whale[whale["tx_category"] == "exchange_deposit"]
     withdrawals = whale[whale["tx_category"] == "exchange_withdrawal"]
 
-    dep_greed, wd_neg = [], []
-    for thresh in SENS_THRESHOLDS:
-        d = deposits[(deposits["usd_value"] >= thresh)
-                     & (deposits["fng_value"] > 75)]["fwd_24h"]
-        w = withdrawals[(withdrawals["usd_value"] >= thresh)
-                        & (withdrawals["funding_rate"] < 0)]["fwd_24h"]
-        dep_greed.append({
-            "threshold": thresh, "n": int(d.notna().sum()),
-            "edge": r2(hit_pct(d, "down") - base["greed_down"]) if d.notna().sum() >= MIN_N else 0,
-        })
-        wd_neg.append({
-            "threshold": thresh, "n": int(w.notna().sum()),
-            "edge": r2(hit_pct(w, "up") - base["negfund_up"]) if w.notna().sum() >= MIN_N else 0,
-        })
-    return {"deposit_greed": dep_greed, "withdrawal_negfund": wd_neg}
+    result = {}
+    for label in HORIZON_LABELS:
+        col = f"fwd_{label}"
+        dep_greed, wd_neg = [], []
+        for thresh in SENS_THRESHOLDS:
+            d = deposits[(deposits["usd_value"] >= thresh)
+                         & (deposits["fng_value"] > 75)][col]
+            w = withdrawals[(withdrawals["usd_value"] >= thresh)
+                            & (withdrawals["funding_rate"] < 0)][col]
+            dep_greed.append({
+                "threshold": thresh, "n": int(d.notna().sum()),
+                "edge": r2(hit_pct(d, "down") - base["greed_down"][label])
+                if d.notna().sum() >= MIN_N else 0,
+            })
+            wd_neg.append({
+                "threshold": thresh, "n": int(w.notna().sum()),
+                "edge": r2(hit_pct(w, "up") - base["negfund_up"][label])
+                if w.notna().sum() >= MIN_N else 0,
+            })
+        result[label] = {"deposit_greed": dep_greed, "withdrawal_negfund": wd_neg}
+    return result
 
 
 # ---------------------------------------------------------------------------

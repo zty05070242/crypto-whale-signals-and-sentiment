@@ -171,6 +171,14 @@ min_usd = st.sidebar.slider(
     value=DATA["thresholds"][0], step=1_000_000, format="$%d",
 )
 
+# Horizon for sections 02, 03, 06 (yearly stability, threshold sensitivity,
+# asymmetry). Sections 01, 04, 05 make their own horizon/regime choices and
+# are not affected by this control.
+default_h = HORIZON_LABELS.index("24h") if "24h" in HORIZON_LABELS else 0
+horizon = st.sidebar.selectbox(
+    "HORIZON (sections 02, 03, 06)", HORIZON_LABELS, index=default_h,
+)
+
 # The slider value keys straight into the pre-computed aggregates.
 B = DATA["by_threshold"][str(min_usd)]
 
@@ -271,15 +279,20 @@ def yearly_bar(edges_by_year: dict, title: str, caption: str):
     st.caption(caption)
 
 
+Y = B["yearly"][horizon]
+
 with tab_dep_yr:
-    yearly_bar(B["yearly"]["deposit_edge"],
-               "DEPOSIT EDGE BY YEAR (24h, unconditional)",
-               "Deposit edge grew from roughly flat in 2023 to a clear positive edge in 2026 (out-of-sample).")
+    yearly_bar(Y["deposit_edge"],
+               f"DEPOSIT EDGE BY YEAR ({horizon}, unconditional)",
+               "Deposit edge grew from roughly flat in 2023 to a clear positive edge by 2026 (out-of-sample) "
+               "at short horizons. Zero bars mean too few observations at this horizon/threshold to trust "
+               "(e.g. long horizons run out of forward data near the end of the dataset).")
 
 with tab_wd_yr:
-    yearly_bar(B["yearly"]["withdrawal_edge_negfund"],
-               "WITHDRAWAL EDGE BY YEAR (24h, negative funding)",
-               "Withdrawal edge peaked around +10pp in 2024, then collapsed below zero by 2026.")
+    yearly_bar(Y["withdrawal_edge_negfund"],
+               f"WITHDRAWAL EDGE BY YEAR ({horizon}, negative funding)",
+               "Withdrawal edge peaked around 2024, then collapsed. Zero bars mean too few observations "
+               "at this horizon/threshold to trust.")
 
 # ---------------------------------------------------------------------------
 # Section 3: Threshold sensitivity
@@ -293,7 +306,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-TS = DATA["threshold_sensitivity"]
+TS = DATA["threshold_sensitivity"][horizon]
 tab_t_dep, tab_t_wd = st.tabs(["DEPOSITS // extreme greed", "WITHDRAWALS // neg funding"])
 
 
@@ -317,10 +330,10 @@ def sensitivity_bar(rows: list, title: str):
 
 
 with tab_t_dep:
-    sensitivity_bar(TS["deposit_greed"], "DEPOSIT EDGE BY THRESHOLD (extreme greed, 24h)")
+    sensitivity_bar(TS["deposit_greed"], f"DEPOSIT EDGE BY THRESHOLD (extreme greed, {horizon})")
 
 with tab_t_wd:
-    sensitivity_bar(TS["withdrawal_negfund"], "WITHDRAWAL EDGE BY THRESHOLD (negative funding, 24h)")
+    sensitivity_bar(TS["withdrawal_negfund"], f"WITHDRAWAL EDGE BY THRESHOLD (negative funding, {horizon})")
 
 # ---------------------------------------------------------------------------
 # Section 4: Sentiment-conditioned hit rates
@@ -442,8 +455,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-dep_yr = [z(B["yearly"]["deposit_edge_uncond"][str(y)]) for y in YEARS]
-wd_yr = [z(B["yearly"]["withdrawal_edge_uncond"][str(y)]) for y in YEARS]
+dep_yr = [z(Y["deposit_edge_uncond"][str(y)]) for y in YEARS]
+wd_yr = [z(Y["withdrawal_edge_uncond"][str(y)]) for y in YEARS]
 
 fig_asym = go.Figure()
 fig_asym.add_trace(go.Bar(
@@ -456,7 +469,7 @@ fig_asym.add_trace(go.Bar(
 ))
 fig_asym.add_hline(y=0, line_dash="dot", line_color=MUTED)
 fig_asym.update_layout(
-    title="DEPOSIT vs WITHDRAWAL EDGE BY YEAR (24h, unconditional)",
+    title=f"DEPOSIT vs WITHDRAWAL EDGE BY YEAR ({horizon}, unconditional)",
     xaxis_title="YEAR", yaxis_title="EDGE (pp)", barmode="group",
 )
 st.plotly_chart(style_fig(fig_asym), width='stretch')
