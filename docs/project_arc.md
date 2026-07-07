@@ -106,6 +106,8 @@ Feature importance shows price momentum dominates; whale features rank low.
 
 Interactive Streamlit dashboard, deployed publicly, and research-format README.
 
+**Live dashboard:** https://crypto-whale-signals-and-sentiment-lkhygb3594bbrogn23qbps.streamlit.app/
+
 **Dashboard architecture:**
 The dashboard does not read the raw 646k-row dataset at runtime. Instead
 `scripts/build_dashboard_data.py` runs once locally, crunching the full
@@ -188,9 +190,8 @@ Update this section at the end of each working session.
   can deploy to Streamlit Community Cloud without the 187 MB gitignored raw
   dataset. app/dashboard.py rewritten to read only this JSON (streamlit +
   plotly only, no pandas at runtime).
-- Deployed to Streamlit Community Cloud (user-side deploy via
-  share.streamlit.io; live URL not yet recorded in this repo -- add it here
-  once confirmed).
+- Deployed to Streamlit Community Cloud:
+  https://crypto-whale-signals-and-sentiment-lkhygb3594bbrogn23qbps.streamlit.app/
 - Fixed a stale-@st.cache_data bug that crashed the live app after a redeploy
   (KeyError: 'dist_conditions'): load_data() now keys its cache on the data
   file's mtime so a new JSON always busts the old cached dict.
@@ -198,7 +199,6 @@ Update this section at the end of each working session.
   selector for sections 2/3/6, so yearly stability, threshold sensitivity, and
   the asymmetry chart can all be viewed at 1h through 6m, not just 24h.
 - Repo renamed on GitHub: whale_signals -> crypto-whale-signals-and-sentiment.
-- Next steps: record the live Streamlit Cloud URL in this file and the
-  README once available; consider whether section 4 (sentiment) or section 5
+- Next steps: consider whether section 4 (sentiment) or section 5
   (distribution) ever warrant their own horizon control once more data
   reduces the small-n risk at long horizons.
