@@ -3,7 +3,7 @@
 ## Research Question
 
 Do large on-chain Ethereum transactions (>$1M) predict short-term ETH price
-movements, and does social media sentiment moderate this relationship?
+movements, and does market sentiment moderate this relationship?
 
 ## Phase Overview
 
@@ -16,6 +16,7 @@ Extract large ETH transactions from the blockchain via Dune Analytics. Enrich
 with wallet labels (exchange, DeFi, unknown). Flag MEV bots.
 
 - Output: `data/processed/whale_txs.csv` with labelled, cleaned transactions.
+- 646,442 transactions, Jan 2023 -- Jul 2026.
 - Key columns: `timestamp_utc`, `from_address`, `to_address`, `from_category`,
   `to_category`, `eth_value`, `usd_value`, `gas_price_gwei`, `gas_used`,
   `is_contract_call`, `is_mev_candidate`, `mev_flag_reason`
@@ -24,99 +25,115 @@ Key decisions documented in `docs/design_notes.md`:
 - Dune Analytics over Etherscan (chain-wide SQL vs per-address API)
 - WETH as ETH price proxy (no native ETH in Dune's prices.usd table)
 - Internal transactions out of scope (ethereum.traces not queried)
-- MEV candidates flagged, not deleted (for Phase 4 sensitivity analysis)
+- MEV candidates flagged, not deleted (for sensitivity analysis)
+
+Wallet labels expanded from 30 to 52,768 addresses using two open-source
+datasets (brianleect/etherscan-labels, dawsbot/eth-labels). Label coverage:
+62.8% of transactions having at least one identified address.
 
 ### Phase 2 -- Transaction Classification (COMPLETE)
 
-The raw labels (exchange_deposit, exchange_withdrawal, defi_interaction,
-wallet_to_wallet) are derived mechanically from address labels. The classifier
-learns to generalise this to unlabelled (unknown->unknown) transactions using
-features like gas price, transaction size, sender history, time of day.
+Rule-based labels (exchange_deposit, exchange_withdrawal, defi_interaction,
+wallet_to_wallet) derived from wallet labels. Random Forest classifier
+trained on labelled transactions to predict categories for remaining
+unknown-to-unknown transactions.
 
 - Output: each transaction gets a predicted category + probability score.
 - Key files: `src/features/feature_engineer.py`,
   `src/models/transaction_classifier.py`
 
-Results on real data (292,445 transactions, 2023-01-01 to 2024-12-31):
-- 76% of transactions are unknown->unknown (classifier is load-bearing).
-- Label coverage: 11.3% from-address labelled, 14.0% to-address labelled.
-- Category distribution: 222,229 wallet_to_wallet, 37,895 exchange_deposit,
-  29,336 exchange_withdrawal, 2,985 defi_interaction.
-- Classifier accuracy on time-based hold-out: 71%.
-  DeFi: perfect. Deposits: 85% precision / 54% recall.
-  Withdrawals: 63% precision / 89% recall.
-- Top features: sender_prior_tx_count (29%), log_gas_used (28%),
-  is_contract_call (19%).
-- Look-ahead safe: sender history uses cumcount (only prior rows).
+Category distribution (full dataset):
+- wallet_to_wallet: 321,257 (49.7%)
+- exchange_deposit: 181,105 (28.0%)
+- exchange_withdrawal: 124,772 (19.3%)
+- defi_interaction: 19,308 (3.0%)
+
+Classifier accuracy on time-based hold-out: 71%.
 
 ### Phase 3 -- Sentiment Pipeline (COMPLETE)
 
-Bitcoin news headlines (Kaggle dataset, 11,295 articles Oct 2021 - Sep 2024)
-scored with VADER sentiment. Filtered to whale data overlap window (Jan 2023 -
-Sep 2024, 5,906 articles), aggregated into 3,474 hourly bins.
+Three sentiment sources:
 
-Data source: Kaggle "Sentiment Analysis of Bitcoin News (2021-2024)" dataset.
-Chosen over GDELT (rate-limited, IP-banned), Reddit (API paywalled),
-CryptoPanic (API paywalled), CoinDesk (API retired).
+1. **News sentiment:** Kaggle Bitcoin news dataset (5,906 articles in overlap
+   window), scored with VADER and RoBERTa. Proved to be a weak signal.
 
-Two sentiment signals available:
-- VADER compound score (lexicon-based, transparent, reproducible)
-- RoBERTa score (pre-computed in dataset, DistilRoBERTa fine-tuned on
-  financial news)
-- Correlation between the two: 0.313 (weak agreement -- complementary signals)
+2. **Fear & Greed Index:** Daily composite score 0-100 from alternative.me.
+   3,075 records.
 
-- Output: `data/processed/hourly_sentiment.csv` (hourly aggregated sentiment),
-  `data/processed/bitcoin_news_scored.csv` (per-article scores).
-- Key files: `src/sentiment/vader_scorer.py`, `src/sentiment/aggregator.py`,
-  `scripts/run_sentiment_pipeline.py`
-- Caveat: 1.7 articles/hour average is sparse. Phase 4 must forward-fill
-  sentiment for hours with no articles (with decay).
-- Why this matters: whale movements in isolation are noisy. If a whale deposits
-  to an exchange during strongly negative sentiment, the selling pressure signal
-  is stronger than the same transaction during positive sentiment.
+3. **Binance funding rate:** 8-hourly, positive = longs pay shorts (bullish),
+   negative = shorts pay longs (bearish). 3,851 records.
 
-### Phase 4 -- Price Impact Prediction (THE PAYOFF)
+Market-derived sentiment (FnG + funding rate) proved far more useful than
+news headlines for conditioning whale signals.
 
-All prior phases combine. Features fed into the final model:
-- Whale transaction category (from Phase 2 classifier)
-- Transaction size and gas (from Phase 1)
-- Hourly sentiment score (from Phase 3)
-- Recent price features (rolling returns, volatility)
+### Phase 4 -- Event Study: Are Whales Smart Money? (COMPLETE)
 
-Target variable: ETH price direction at t+24h (binary: up or down).
-Walk-forward validation: model trained only on data available before each
-prediction. No look-ahead.
+The core analysis. Walk-forward event study with threshold sensitivity.
 
-- Output: directional accuracy, edge over random baseline, P&L simulation.
+**Methodology:**
+- For each whale transaction, compute forward ETH return at 1h, 6h, 24h.
+- Measure hit rate and compare to base rate under same market conditions.
+- Walk-forward by year: 2023, 2024, 2025, 2026 analysed independently.
+- Threshold sensitivity: $1M, $2M, $5M, $10M minimum transaction size.
+- Condition on sentiment regime (Fear & Greed, funding rate).
 
-### Phase 5 -- Evaluation and Write-up
+**Key findings:**
 
-Honest reporting of findings. Where does the signal exist? Which transaction
-categories drive it? Does sentiment improve or not? What are the limitations?
+1. **Deposit edge is persistent and growing.** Unconditional deposit hit rate
+   at 24h: +3.9% edge in 2026 (out-of-sample). During extreme greed, $10M+
+   deposits hit 78.3% (+12.5% edge). Edge scales with transaction size.
 
-- Output: `results/charts/`, `docs/findings.md`, final README.
+2. **Withdrawal edge has decayed.** Was +4.7% to +10.1% in 2023-2024, collapsed
+   to zero in 2025-2026 at all thresholds. DeFi maturation changed what
+   withdrawals mean (staking, LP, L2 bridging vs directional buying).
+
+3. **Alpha decay is asymmetric.** Buy signals decayed; sell signals strengthened.
+   Consistent with confirmation bias: participants monitor bullish whale activity
+   but ignore bearish signals, leaving the deposit edge un-arbitraged.
+
+4. **Unconditional whales are not smart money.** Full-dataset hit rates near 50%.
+   The edge is conditional on sentiment regime and transaction size.
+
+**Secondary finding (ML model):**
+Walk-forward Random Forest with 22 features achieves 53.3% accuracy at 6h.
+Feature importance shows price momentum dominates; whale features rank low.
+
+- Key files: `src/analysis/event_study.py`, `scripts/run_event_study.py`,
+  `scripts/run_walk_forward.py`, `scripts/run_threshold_sensitivity.py`
+- ML files: `src/features/phase4_features.py`, `src/models/price_predictor.py`
+
+### Phase 5 -- Dashboard and Write-up (COMPLETE)
+
+Interactive Streamlit dashboard and research-format README.
+
+- Dashboard: `app/dashboard.py`
+- README with full results, methodology, and limitations.
+- Walk-forward results: `results/walk_forward_results.csv`
+- Threshold sensitivity: `results/threshold_sensitivity.csv`
 
 ## Where ML Appears
 
 | Phase   | ML Component              | Type                                          |
 |---------|---------------------------|-----------------------------------------------|
 | Phase 2 | Transaction classifier    | Supervised classification (Random Forest)     |
-| Phase 3 | Sentiment scoring         | Pre-trained NLP (VADER, optional FinBERT)     |
-| Phase 4 | Price impact predictor    | Supervised classification (XGBoost/LogReg)    |
-
-Phase 2 ML is in service of Phase 4. The classifier is not the end goal -- it
-is a feature engineering step that makes Phase 4 possible by extending label
-coverage to unknown->unknown transactions.
+| Phase 3 | Sentiment scoring         | Pre-trained NLP (VADER)                       |
+| Phase 4 | Price impact predictor    | Supervised classification (RF + LogReg)       |
+| Phase 4 | Event study               | Statistical testing (binomial test)           |
 
 ## Session Handoff Notes
 
 Update this section at the end of each working session.
 
-**Last session: 2026-06-15**
-- Phase 3 complete (105 tests passing, 10 skipped).
-- Sentiment data: Kaggle Bitcoin news dataset, 5,906 articles in overlap window.
-- Two sentiment scores: VADER (ours) and RoBERTa (pre-computed). Correlation 0.313.
-- Hourly sentiment: 3,474 bins saved to data/processed/hourly_sentiment.csv.
-- Dune API credits exhausted. DO NOT run dune_client.py or whale_fetcher.py.
-- Next step: Phase 4 -- price impact prediction. Need ETH price data (hourly),
-  merge whale transactions + sentiment + price, build predictive model.
+**Last session: 2026-07-07**
+- Data expanded to 646,442 transactions (Jan 2023 -- Jul 2026) via second
+  Dune account. Prices, funding rates, FnG all updated through Jul 2026.
+- Walk-forward event study by year completed. Key discovery: withdrawal edge
+  decayed from 2023 to 2026, deposit edge grew. Alpha decay is asymmetric.
+- Threshold sensitivity analysis: deposit edge scales with transaction size.
+  $10M+ deposits during extreme greed = 78.3% hit rate (+12.5% edge).
+- DeFi dilution hypothesis: withdrawal signal broke down because DeFi maturation
+  changed what withdrawals mean (non-directional: staking, LP, L2 bridging).
+- README rewritten with walk-forward results and threshold sensitivity.
+- Scripts: run_walk_forward.py, run_threshold_sensitivity.py added.
+- event_study.py vectorised (was timing out on 646k rows with .apply()).
+- Next steps: update dashboard with new results, potentially deploy.

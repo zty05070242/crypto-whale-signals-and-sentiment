@@ -63,25 +63,22 @@ def compute_event_returns(
     # Floor whale timestamps to the hour for price lookup
     whale["hour_utc"] = whale["timestamp_utc"].dt.floor("h")
 
-    # Build lookup dict: hour -> close price
-    price_lookup = price.set_index("timestamp_utc")["close"].to_dict()
+    # Vectorised: merge current-hour price, then future-hour prices
+    price_series = price.set_index("timestamp_utc")["close"]
+
+    # Current price at event hour
+    whale = whale.merge(
+        price_series.rename("price_t0"),
+        left_on="hour_utc", right_index=True, how="left",
+    )
 
     for h in HORIZONS:
-        offset = pd.Timedelta(hours=h)
         col = f"fwd_return_{h}h"
+        future_hour = whale["hour_utc"] + pd.Timedelta(hours=h)
+        future_price = future_hour.map(price_series)
+        whale[col] = (future_price - whale["price_t0"]) / whale["price_t0"]
 
-        def _calc(row, _offset=offset):
-            current_hour = row["hour_utc"]
-            future_hour = current_hour + _offset
-            current_price = price_lookup.get(current_hour)
-            future_price = price_lookup.get(future_hour)
-
-            if current_price is None or future_price is None or current_price == 0:
-                return np.nan
-
-            return (future_price - current_price) / current_price
-
-        whale[col] = whale.apply(_calc, axis=1)
+    whale.drop(columns="price_t0", inplace=True)
 
     # Drop rows where any return is NaN
     return_cols = [f"fwd_return_{h}h" for h in HORIZONS]
@@ -365,3 +362,229 @@ def print_conditioned_hit_rates(results: dict) -> None:
                       f"{s['pvalue']:>8.4f}  "
                       f"{sig:>5}  "
                       f"{verdict:>12}")
+
+
+def compute_base_rate(
+    price_df: pd.DataFrame,
+    direction: str,
+    horizon: int,
+    condition_mask: Optional[pd.Series] = None,
+) -> float:
+    """
+    Compute the base rate: what fraction of ALL hours saw price go in the
+    expected direction? This is the benchmark a whale must beat to show edge.
+
+    Parameters
+    ----------
+    price_df : pd.DataFrame
+        Hourly prices with timestamp_utc and close columns.
+    direction : str
+        'up' or 'down'.
+    horizon : int
+        Hours forward to measure.
+    condition_mask : pd.Series, optional
+        Boolean mask (positionally aligned with price_df) to restrict
+        to a sentiment regime.
+
+    Returns
+    -------
+    float
+        Fraction of hours where price moved in the expected direction.
+    """
+    price = price_df.copy()
+    price["timestamp_utc"] = pd.to_datetime(price["timestamp_utc"], utc=True)
+    price = price.sort_values("timestamp_utc").reset_index(drop=True)
+
+    price_series = price.set_index("timestamp_utc")["close"]
+    future = price["timestamp_utc"] + pd.Timedelta(hours=horizon)
+    future_price = future.map(price_series)
+    fwd_return = (future_price - price["close"]) / price["close"]
+
+    # Apply condition mask by position (numpy array) to avoid index mismatch
+    if condition_mask is not None:
+        mask_arr = condition_mask.values if hasattr(condition_mask, "values") else condition_mask
+        fwd_return = fwd_return[mask_arr]
+
+    valid = fwd_return.dropna()
+
+    if len(valid) == 0:
+        return 0.5
+
+    if direction == "up":
+        return float((valid > 0).sum() / len(valid))
+    else:
+        return float((valid < 0).sum() / len(valid))
+
+
+def walk_forward_by_year(
+    events_df: pd.DataFrame,
+    price_df: pd.DataFrame,
+    fng_df: Optional[pd.DataFrame] = None,
+    funding_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Run the event study independently for each calendar year to show
+    whether the whale signal is stable over time.
+
+    For each year, computes:
+    - Whale hit rate for withdrawals and deposits
+    - Base rate under the same conditions
+    - Whale edge (hit rate minus base rate)
+
+    Parameters
+    ----------
+    events_df : pd.DataFrame
+        Output of compute_event_returns() with sentiment already merged.
+    price_df : pd.DataFrame
+        Hourly ETH prices.
+    fng_df : pd.DataFrame, optional
+        Daily Fear & Greed data.
+    funding_df : pd.DataFrame, optional
+        Binance funding rate data.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per year x category x condition x horizon.
+    """
+    df = events_df.copy()
+    df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True)
+
+    # Merge sentiment if not already present
+    if fng_df is not None and "fng_value" not in df.columns:
+        fng = fng_df.copy()
+        fng["date"] = pd.to_datetime(fng["date"], utc=True)
+        df["_date"] = df["timestamp_utc"].dt.floor("D")
+        fng = fng.rename(columns={"date": "_date"}).sort_values("_date")
+        df = pd.merge_asof(
+            df.sort_values("_date"), fng[["_date", "fng_value"]],
+            on="_date", direction="backward",
+        )
+        df.drop(columns="_date", inplace=True)
+        df["fng_value"] = df["fng_value"].fillna(50)
+
+    if funding_df is not None and "funding_rate" not in df.columns:
+        funding = funding_df.copy()
+        funding["timestamp_utc"] = pd.to_datetime(
+            funding["timestamp_utc"], utc=True, format="ISO8601",
+        )
+        funding = funding.sort_values("timestamp_utc")
+        df = pd.merge_asof(
+            df.sort_values("hour_utc"),
+            funding[["timestamp_utc", "funding_rate"]].rename(
+                columns={"timestamp_utc": "hour_utc"}
+            ),
+            on="hour_utc", direction="backward",
+        )
+        df["funding_rate"] = df["funding_rate"].fillna(0.0)
+
+    # Prepare price data with sentiment for base rate computation
+    price = price_df.copy()
+    price["timestamp_utc"] = pd.to_datetime(price["timestamp_utc"], utc=True)
+    price = price.sort_values("timestamp_utc").reset_index(drop=True)
+
+    if fng_df is not None:
+        fng2 = fng_df.copy()
+        fng2["date"] = pd.to_datetime(fng2["date"], utc=True)
+        price["_date"] = price["timestamp_utc"].dt.floor("D")
+        fng2 = fng2.rename(columns={"date": "_date"}).sort_values("_date")
+        price = pd.merge_asof(
+            price.sort_values("_date"), fng2[["_date", "fng_value"]],
+            on="_date", direction="backward",
+        )
+        price.drop(columns="_date", inplace=True)
+        price["fng_value"] = price["fng_value"].fillna(50)
+
+    if funding_df is not None:
+        funding2 = funding_df.copy()
+        funding2["timestamp_utc"] = pd.to_datetime(
+            funding2["timestamp_utc"], utc=True, format="ISO8601",
+        )
+        funding2 = funding2.sort_values("timestamp_utc")
+        price = pd.merge_asof(
+            price.sort_values("timestamp_utc"),
+            funding2[["timestamp_utc", "funding_rate"]],
+            on="timestamp_utc", direction="backward",
+        )
+        price["funding_rate"] = price["funding_rate"].fillna(0.0)
+
+    price["year"] = price["timestamp_utc"].dt.year
+    df["year"] = df["timestamp_utc"].dt.year
+
+    category_directions = {
+        "exchange_withdrawal": "up",
+        "exchange_deposit": "down",
+    }
+
+    # Conditions to test (label, whale_mask_fn, price_mask_fn)
+    cond_defs = [
+        ("all", lambda d: pd.Series(True, index=d.index), lambda p: pd.Series(True, index=p.index)),
+        ("funding_negative",
+         lambda d: d["funding_rate"] < 0,
+         lambda p: p["funding_rate"] < 0),
+        ("extreme_greed",
+         lambda d: d["fng_value"] > 75,
+         lambda p: p["fng_value"] > 75),
+        ("extreme_fear",
+         lambda d: d["fng_value"] <= 25,
+         lambda p: p["fng_value"] <= 25),
+    ]
+
+    rows = []
+    years = sorted(df["year"].unique())
+
+    for year in years:
+        yr_events = df[df["year"] == year]
+        yr_price = price[price["year"] == year]
+
+        price_series_yr = yr_price.set_index("timestamp_utc")["close"]
+
+        for cat, expected_dir in category_directions.items():
+            cat_data = yr_events[yr_events["tx_category"] == cat]
+
+            for cond_label, whale_mask_fn, price_mask_fn in cond_defs:
+                subset = cat_data[whale_mask_fn(cat_data)]
+                price_subset_mask = price_mask_fn(yr_price)
+
+                if len(subset) < 30:
+                    continue
+
+                for h in HORIZONS:
+                    col = f"fwd_return_{h}h"
+                    if col not in subset.columns:
+                        continue
+
+                    returns = subset[col].dropna().values
+                    if len(returns) < 30:
+                        continue
+
+                    if expected_dir == "down":
+                        hits = int((returns < 0).sum())
+                    else:
+                        hits = int((returns > 0).sum())
+
+                    n = len(returns)
+                    hit_rate = hits / n
+
+                    # Base rate for this year and condition
+                    base = compute_base_rate(
+                        yr_price, expected_dir, h, price_subset_mask,
+                    )
+
+                    p_value = stats.binomtest(hits, n, p=0.5).pvalue
+
+                    rows.append({
+                        "year": year,
+                        "category": cat,
+                        "condition": cond_label,
+                        "horizon_h": h,
+                        "n": n,
+                        "hits": hits,
+                        "hit_rate": hit_rate,
+                        "base_rate": base,
+                        "whale_edge": hit_rate - base,
+                        "mean_return": float(np.mean(returns)),
+                        "pvalue": p_value,
+                    })
+
+    return pd.DataFrame(rows)
