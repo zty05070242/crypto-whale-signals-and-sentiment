@@ -8,13 +8,17 @@ This study investigates whether large on-chain Ethereum transactions predict sho
 
 **Key findings:**
 
-1. **Whale deposits (sell signals) show a persistent, growing edge that strengthens with horizon.** The unconditional deposit edge grows from +1.3% at 24h to +4.8% at 1 month to +12.4% at 6 months. During extreme greed, $10M+ deposits correctly predict 24h price drops 78.3% of the time (+12.5% above base rate). Whale sellers think in weeks and months, not hours.
+The clearest result: the deposit (sell) signal's edge grows monotonically from +1.3% at 24 hours to +12.4% at 6 months, and this pattern was set using 2023-2025 data and confirmed, unchanged, when tested against 2026 data collected afterward.
 
-2. **Whale withdrawals (buy signals) lost their edge entirely.** In 2023-2024, withdrawals during negative funding showed +4.7% to +10.1% edge. By 2025-2026, this collapsed to zero at all thresholds. At longer horizons, withdrawals become actively wrong: -6.1% edge at 1 month, -12.9% at 6 months. We attribute this to DeFi maturation: withdrawals increasingly represent staking, liquidity provision, and L2 bridging rather than directional buying.
+1. **Whale deposits (sell signals) show a persistent, growing edge that strengthens with horizon, and holds at every transaction size.** The unconditional deposit edge grows from +1.3% at 24h to +4.8% at 1 month to +12.4% at 6 months. This growth over time shows up consistently whether we look at $1M+ or $10M+ deposits alone: both move from roughly flat in 2023 to +2.9% to +3.9% by 2026. Whale sellers think in weeks and months, not hours. (A separate, narrower claim we initially reported, that $10M+ deposits during extreme greed showed a 78.3% hit rate, did not hold up under closer testing; see Discussion.)
 
-3. **Alpha decay is asymmetric, and a dilution effect that should have weakened the deposit signal did not.** As ETH's price rose, a fixed $1M threshold captured progressively smaller, less committed actors (~833 ETH in 2023 vs ~250 ETH in 2026). Nonetheless, the deposit edge grew despite this headwind, arguing against a simple composition effect. The reason why the deposit signal specifically was not arbitraged away (unlike withdrawals) is still speculative: one untested hypothesis is that whale-watching tools disproportionately broadcast bullish activity, leaving bearish signals less crowded.
+2. **Whale withdrawals (buy signals) lost their edge entirely, and this holds at every transaction size too.** In 2023-2024, withdrawals during negative funding showed +4.7% to +10.1% edge; by 2025 that had faded close to zero at every threshold, and by 2026 it was negative at every threshold from $1M+ to $10M+, ruling out the simple explanation that small, less sophisticated actors were just diluting the signal. At longer horizons, withdrawals become actively wrong: -6.1% edge at 1 month, -12.9% at 6 months. We attribute this to DeFi maturation: withdrawals increasingly represent staking, liquidity provision, and L2 bridging rather than directional buying.
 
-4. **The edge is real but comes with real pain.** For long-horizon deposit signals that eventually paid off, we measured the maximum adverse excursion: the worst unrealised loss before the signal worked. This grows sharply with horizon, from 2.7% at 1 week to 20.1% at 6 months on average (unconditional), with the worst 10% of "correct" 6-month trades seeing a 54.4% adverse move first. The edge is not free money; it requires tolerating drawdowns most traders cannot tolerate.
+3. **Alpha decay is asymmetric, and a headwind that should have weakened the deposit signal did not.** As ETH's price rose, a fixed $1M threshold captured progressively smaller, less committed sellers (~833 ETH in 2023 vs ~250 ETH in 2026), dilution that should work against the deposit edge. Instead the edge grew, which argues against a simple composition-effect explanation. Why the deposit signal specifically avoided being arbitraged away, unlike withdrawals, remains an open question; one candidate explanation is that whale-watching tools amplify bullish activity more than bearish.
+
+4. **A second, independent method reaches a compatible conclusion.** A walk-forward validated Random Forest model (24 folds, no single-shot fitting) finds a modest but real edge over baseline (+2.0% to +2.9% at short horizons), and its feature importance ranks whale-specific features near the bottom, with price momentum and market sentiment dominating. A completely different technique, applied independently, agrees with the event study: whale activity is a real but conditional signal, not a standalone predictor.
+
+5. **The edge is real, and it comes with a real cost.** For long-horizon deposit signals that eventually paid off, we measured the maximum adverse excursion: the worst unrealised loss before the signal worked. This grows sharply with horizon, from 2.7% at 1 week to 20.1% at 6 months on average, with the worst 10% of "correct" 6-month trades seeing a 54.4% adverse move first. The edge is not free money; collecting it means surviving drawdowns most traders cannot tolerate.
 
 ---
 
@@ -46,17 +50,17 @@ In traditional equity markets, institutional positioning is reported quarterly (
 
 Prior work on "whale watching" typically treats it as a price prediction problem: feed whale data into an ML model and attempt to forecast returns. This approach conflates multiple signals and rarely isolates the whale-specific contribution. The approach now differs in three ways:
 
-1. **Event study methodology** - we directly measure whether whale actions predict direction, rather than building a black-box predictor.
-2. **Sentiment conditioning** - we test whether market regime (Fear & Greed Index, futures funding rate) moderates the whale signal.
+1. **Event study methodology**: we directly measure whether whale actions predict direction, rather than building a black-box predictor.
+2. **Sentiment conditioning**: we test whether market regime (Fear & Greed Index, futures funding rate) moderates the whale signal.
 3. **Yearly stability analysis.** We test each year independently (2023, 2024, 2025, 2026) to detect alpha decay. 2026 serves as an out-of-sample check on hypotheses developed from 2023 to 2025 data.
 
 ## Original Contributions
 
 1. **Asymmetric alpha decay.** Whale buy signals decayed from 2023 to 2026 while sell signals strengthened. We hypothesise this is partly because whale-watching tools broadcast bullish activity more than bearish, but the cause is not definitively established.
 
-2. **Long-horizon whale intelligence.** Whale deposit edge grows monotonically with time horizon: +1.3% at 24h, +4.8% at 1 month, +12.4% at 6 months. Whale sellers are not just day-traders, they can have better experience and knowledge and might see structural shifts weeks to months ahead.
+2. **Long-horizon whale intelligence.** Whale deposit edge grows monotonically with time horizon: +1.3% at 24h, +4.8% at 1 month, +12.4% at 6 months. The longer-horizon figures carry more overlap between events and deserve more caution than the 24h figure (see Limitations). Whale sellers are not just day-traders, they can have better experience and knowledge and might see structural shifts weeks to months ahead.
 
-3. **Threshold sensitivity.** Deposit edge scales with transaction size: $10M+ deposits during extreme greed achieve 78.3% hit rate at 24h (+12.5% above base rate). Larger sellers are more informed.
+3. **Threshold sensitivity, revised.** We initially reported $10M+ deposits during extreme greed achieving a 78.3% hit rate at 24h. Looking closer, the transactions behind that number cluster within a small number of days, which is the same overlapping-observations problem described in the Limitations section, and it is why we do not treat this figure as confirmed (see Discussion).
 
 4. **DeFi dilution hypothesis.** Due to DeFi maturation, withdrawals can mean staking, LP provision, and L2 bridging, which are non-directional. This dilutes the "withdrawal = buy" assumption. However, deposits remain a clean sell signal.
 
@@ -422,6 +426,8 @@ MAE grows sharply with horizon, roughly in step with the edge itself. A 6-month 
 
 This does not model an actual stop-loss RULE. MAE tells us the worst point reached, not whether a specific risk-management rule would have survived it. Simulating a concrete stop-loss policy is a next step.
 
+---
+
 ## Discussion
 
 ### Why did withdrawal edge decay? (evidenced)
@@ -444,11 +450,17 @@ What we can say more confidently is that the edge scales with transaction size. 
 
 The deposit edge at 24h is small (+1.3%). At 1 month it is +4.8%. At 6 months, +12.4%. These whales are not day-trading. They are making structural calls about where ETH is heading over the next quarter or two, and they are right more often than random. The mean return after whale deposits during extreme greed is -22.6% at 6 months. The price crashes, and the whales were already out.
 
+### A number we found, and then un-found: what happened to the 78.3% claim
+
+We initially reported that $10M+ deposits during extreme greed correctly predicted a 24h price drop 78.3% of the time. Looking more closely at where that number actually came from, the transactions behind it are concentrated in a small number of days, all within a few weeks of 2025, not spread across the dataset. When the events behind a statistic cluster together like that, they are largely describing the same handful of market moves rather than many separate, independent ones. That is the overlapping-observations problem described in the Limitations section, and it is exactly why we do not trust this specific number, even though the underlying transactions and the arithmetic behind it are entirely real.
+
+We are leaving the original 78.3% claim's story in this write-up rather than quietly deleting it, because how we found reason to doubt it is as informative as the number itself.
+
 ---
 
 ## Limitations
 
-1. **Long-horizon observations overlap.** At 1-month and longer horizons, thousands of whale events are measuring the same price move. The binomial p-values overstate significance. The edge column (whale vs base rate) is more informative than raw hit rates or p-values at these horizons.
+1. **Long-horizon observations overlap.** At 1-month and longer horizons, thousands of whale events are measuring the same price move. The binomial p-values overstate significance. The edge column (whale vs base rate) is more informative than raw hit rates or p-values at these horizons. See Discussion for a worked example of this problem breaking a specific headline claim.
 
 2. **DeFi dilution is untested.** We hypothesise that withdrawal edge decayed because withdrawals increasingly represent non-directional DeFi activity. Testing would require tracing post-withdrawal activity on-chain (e.g. did the ETH go to a staking contract or a cold wallet?).
 
@@ -457,6 +469,8 @@ The deposit edge at 24h is small (+1.3%). At 1 month it is +4.8%. At 6 months, +
 4. **On-chain latency.** Whale transactions are visible after block confirmation (~12 seconds), but monitoring, processing, and executing a response trade adds delay.
 
 5. **Fixed USD threshold ignores ETH price growth.** A $1M transaction was ~833 ETH in 2023 but only ~250 ETH in 2026. The $1M pool gets diluted with smaller actors over time. An ETH-denominated threshold or inflation-adjusted threshold would be more rigorous but harder to compare across years. 
+
+6. **Deposits are not screened for round-tripping.** The "whale sellers think in months" framing assumes a deposit reflects a deliberate long-horizon view, but we do not know why a whale deposited. Checking whether the same address later receives a withdrawal: 24.1% of deposits see the same address withdraw within 24 hours, 29.1% within a week, which is inconsistent with a persistent multi-month directional view for at least a meaningful minority of events. This checks only whether a subsequent withdrawal occurred, not whether the amount matches the deposit, so it cannot distinguish genuine short-term round-tripping from unrelated later activity through the same address. The aggregate statistical pattern (deposits preceding declines) may still hold regardless of individual intent, but the narrative that whales are "making deliberate calls" should be read as a description of the aggregate, not a claim about every individual transaction.
 
 ---
 

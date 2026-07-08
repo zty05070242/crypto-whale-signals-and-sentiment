@@ -80,8 +80,13 @@ The core analysis. Walk-forward event study with threshold sensitivity.
 **Key findings:**
 
 1. **Deposit edge is persistent and growing.** Unconditional deposit hit rate
-   at 24h: +3.9% edge in 2026 (out-of-sample). During extreme greed, $10M+
-   deposits hit 78.3% (+12.5% edge). Edge scales with transaction size.
+   at 24h: +3.9% edge in 2026 (out-of-sample), holding consistently at every
+   threshold from $1M+ to $10M+. A narrower claim -- $10M+ deposits during
+   extreme greed hitting 78.3% (+12.5% edge) -- was later found not to
+   survive scrutiny for overlapping observations (see the Priority 1
+   resolution notes further down this file). Do not cite the 78.3% figure as
+   a finding; it is kept in the README only as a worked example of the
+   overlap problem.
 
 2. **Withdrawal edge has decayed. DeFi maturation is the evidenced explanation.**
    Was +4.7% to +10.1% in 2023-2024, collapsed to zero in 2025-2026 at all
@@ -258,9 +263,82 @@ Update this section at the end of each working session.
     the correction methodology (block-clustering, the simple method already
     computed, vs. Newey-West/HAC-corrected regression, the more standard but
     heavier academic tool) before this gets implemented and written up.
-- Next steps: resolve Priority 1 (decide correction method, rewrite abstract
-  around the broad-vs-narrow distinction, add effective-N alongside raw N
-  throughout the results tables). Also still open: whether section 4
-  (sentiment) or section 5 (distribution) on the dashboard ever warrant their
-  own horizon control once more data reduces the small-n risk at long
-  horizons.
+- **Priority 1: final resolution, after several false starts (read this one,
+  not any earlier draft of this note -- the arc matters for next time).**
+
+  The investigation went through three methods, in order of decreasing
+  sophistication, each abandoned for the same underlying reason:
+
+  1. `scripts/run_hac_regression.py` -- reframed the overlap problem as a
+     regression (forward return ~ log deposit $ volume per hour, with
+     Newey-West HAC standard errors, tested at 3 lag choices per cell to
+     catch that the theoretically-motivated lag is itself unstable at long
+     horizons). Confirmed the 78.3% flagship claim does not survive
+     (coefficient ~0, wrong sign) and surfaced a new "3-month, extreme greed,
+     deposit volume" finding that held up across every lag tested. **Deleted.**
+     After walking through exactly what the script did, Fred concluded he did
+     not understand it well enough to defend it in an interview and asked to
+     ditch it. Right call, not argued out of.
+  2. A block-partition check (grouping events into non-overlapping calendar
+     periods so clustered same-day transactions count once, not many times)
+     -- confirmed the same finding via a method Fred does understand and
+     argued through himself ("is the 3-month horizon really only 1 episode",
+     "if a whale wins, doesn't that count towards the hit rate" -- both good,
+     correct challenges he raised unprompted). Found the 78.3% claim rests on
+     just 10 genuinely independent calendar days (p=0.109, not significant).
+  3. `scripts/run_daily_deposit_frequency.py` -- an independently-designed
+     third method (busy vs quiet periods for deposit activity, block length
+     matched to the horizon being tested). Two real bugs were caught and
+     fixed via synthetic unit tests before trusting it on real data (a naive
+     one-row-per-calendar-day design didn't account for busy days clustering
+     together, which reintroduces overlap at long horizons; a pd.cut binning
+     bug silently folded a dropped incomplete block's deposits into the prior
+     block). The correctly-built version, tested at the only horizon with
+     enough non-overlapping blocks to mean anything (1 month, ~42 blocks),
+     came back a clean null (-6.5% edge, p=0.55).
+
+  **Then Fred proposed a clean final scope, and this is what actually
+  shipped:** ditch every statistical correction method from the write-up
+  entirely (no effective-N language, no block-partition description, no
+  regression) -- not because any of them were wrong, but because describing
+  a correction technique in the README creates a defend-it-in-an-interview
+  obligation that isn't worth taking on. Keep only the plain-English
+  Limitation #1 ("long-horizon observations overlap... report the edge, not
+  the p-value"), which was already accurate and needs no methodology behind
+  it to defend. Fix the abstract/Original Contributions so the 1-month and
+  6-month figures aren't stated with the same unqualified confidence as the
+  24h figure, consistent with that limitation -- a wording change, not new
+  analysis. The 78.3% Discussion passage was rewritten the same way: states
+  plainly that the claim rests on a small, clustered slice of history, with
+  no mention of calendar periods, effective N, or p-values.
+
+  `scripts/run_daily_deposit_frequency.py` and `run_hac_regression.py` are
+  both deleted; neither was ever committed, so there is no git history to
+  clean up. `results/daily_deposit_frequency.csv` and
+  `results/hac_regression_results.csv` were also removed (gitignored anyway).
+
+  **One thing Fred asked for and was explicitly declined, worth recording
+  precisely so a future session does not accidentally do it:** presenting
+  the UN-spaced version of the busy-period test (which showed a ~20-26% edge,
+  because it has the same overlap problem as the original 78.3% claim) as a
+  legitimate finding, either outright or with the overlap caveat relegated to
+  a separate Limitations bullet disconnected from the specific number. Both
+  versions were refused for the same reason: the project already demonstrates,
+  with its own data, that this exact overstatement mechanism is real and
+  large (p=2x10^-27 naive vs p=0.11 corrected for the same claim) -- using an
+  un-spaced number after establishing that would be knowingly misleading, not
+  a scope or style choice. If a future session is asked to revisit this test,
+  any result must either use properly-spaced (non-overlapping) blocks, or be
+  presented with its overlap caveat immediately adjacent to the number, not
+  filed separately.
+
+  **Lesson for future sessions:** the right level of rigour for this project
+  is "plain English, no specific correction technique asserted" -- not
+  because more rigorous methods are wrong, but because Fred needs to be able
+  to defend everything in the document himself, and a technique he can't
+  explain is a liability regardless of whether it's statistically correct.
+- Next steps: nothing outstanding on Priority 1 -- closed at the "honest
+  plain-English disclosure" level, deliberately, after trying three more
+  sophisticated alternatives first. Still open: whether section 4 (sentiment)
+  or section 5 (distribution) on the dashboard ever warrant their own horizon
+  control once more data reduces the small-n risk at long horizons.
