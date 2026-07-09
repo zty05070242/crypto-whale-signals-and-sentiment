@@ -1,7 +1,5 @@
 # Are Ethereum Whales Smart Money? An Event Study of On-Chain Signals and Sentiment
 
-**Live dashboard:** https://crypto-whale-signals-and-sentiment-lkhygb3594bbrogn23qbps.streamlit.app/
-
 ## Abstract
 
 This study investigates whether large on-chain Ethereum transactions predict short-term and medium-term ETH price movements, and whether market sentiment moderates this relationship. Using an event study methodology on **646,442 whale transactions** over **3.5 years** (Jan 2023 - Jul 2026), we measure the directional hit rate of whale exchange deposits (sell signals) and withdrawals (buy signals) across nine time horizons (1 hour to 6 months), four transaction size thresholds ($1M to $10M+), seven sentiment regimes, and four independent yearly samples.
