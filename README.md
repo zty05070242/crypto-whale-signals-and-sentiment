@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This study investigates whether large on-chain Ethereum transactions predict short-term and medium-term ETH price movements, and whether market sentiment moderates this relationship. Using an event study methodology on **646,442 whale transactions** over **3.5 years** (Jan 2023 - Jul 2026), we measure the directional hit rate of whale exchange deposits (sell signals) and withdrawals (buy signals) across nine time horizons (1 hour to 6 months), four transaction size thresholds ($1M to $10M+), seven sentiment regimes, and four independent yearly samples.
+This study investigates whether large on-chain Ethereum transactions predict short-term and medium-term ETH price movements, and whether market sentiment moderates this relationship. Using an event study methodology on **646,442 whale transactions** over **3.5 years** (Jan 2023 - Jul 2026), we measure the directional hit rate of whale exchange deposits (sell signals) and withdrawals (buy signals) across nine time horizons (1 hour to 6 months), four transaction size thresholds ($1M to $10M+), seven sentiment regimes, two market regimes (bull/bear), and four independent yearly samples.
 
 **Key findings:**
 
@@ -34,6 +34,7 @@ The deposit (sell) signal's edge grows monotonically from +1.3% at 24 hours to +
 - [Results: Deposits by Year at Long Horizons](#6-deposit-edge-by-year-at-long-horizons)
 - [Results: ML Model](#7-ml-model-secondary-analysis)
 - [Results: Drawdown During the Holding Period](#8-drawdown-during-the-holding-period)
+- [Results: Bull vs Bear Market Regimes](#9-bull-vs-bear-market-regimes)
 - [Discussion](#discussion)
 - [Limitations](#limitations)
 - [Dashboard](#interactive-dashboard)
@@ -120,6 +121,7 @@ Category distribution:
 | **Transaction thresholds** | $1M+, $2M+, $5M+, $10M+ |
 | **Years** | 2023, 2024, 2025, 2026 (independent yearly samples; 2026 out-of-sample) |
 | **Sentiment regimes** | Extreme fear (FnG <= 25), fear (25 to 45), neutral (45 to 55), greed (55 to 75), extreme greed (>75), negative funding, positive funding |
+| **Market regimes** | Bull (20%+ rally from trough), bear (20%+ drawdown from peak) |
 | **Transaction categories** | Exchange deposit, exchange withdrawal, DeFi interaction |
 
 ---
@@ -427,6 +429,29 @@ This does not model an actual stop-loss RULE. MAE tells us the worst point reach
 
 ---
 
+### 9. Bull vs Bear Market Regimes
+
+The investigation into the 78.3% claim (see Discussion) showed why it did not hold up: the transactions behind it clustered into just 10 calendar days, which overlap heavily at a 24h horizon and completely dominate a long horizon. That investigation's main lesson, that long horizons cannot be trusted with the data available, inspired the idea for a separate experiment: comparing the whale signal between bull and bear markets. It turned out this experiment naturally only needed short-to-mid-term horizons (24h, 3 days, 1 week) to be meaningful, which lined up well with what the 78.3% investigation had already taught us to trust. This section tests it across the same $1M-$10M+ threshold range used in Section 4: does the whale signal differ between bull and bear markets, and does that hold at every transaction size?
+
+Regime definition: the standard textbook one, not tuned to fit the data. A bear market begins when price falls 20% from the most recent peak; a bull market begins when price rises 20% from the most recent trough. Over the full dataset this produced 27 separate bull/bear segments (not one long cycle each), pooling to 20,663 bull hours and 10,139 bear hours.
+
+#### Deposit and withdrawal edge by regime and threshold, 1-week horizon
+
+| Threshold | Deposit, Bull | Deposit, Bear | Withdrawal, Bull | Withdrawal, Bear |
+|-----------|---------------|----------------|-------------------|--------------------|
+| $1M+ | +0.5% | **+3.9%** | -1.2% | **-3.9%** |
+| $2M+ | +0.7% | **+4.8%** | -1.8% | **-4.3%** |
+| $5M+ | +1.5% | **+4.9%** | -4.2% | **-6.1%** |
+| $10M+ | +2.2% | **+4.6%** | -3.1% | **-7.7%** |
+
+At every single size tested, the deposit edge is stronger in bear markets than bull markets, and the withdrawal edge is more wrong in bear markets than bull markets. This holds consistently across four independent size cuts, not just the base case, the same kind of cross-threshold consistency already used elsewhere in this project as evidence a pattern is not a fluke of one specific cut. One plausible reading: whale selling during an already-declining market reflects real recognition of further downside, while selling during a bull market is more often routine profit-taking that predicts little. Withdrawals, meanwhile, get worse specifically when "buying conviction" would need to be strongest.
+
+At 24h and 3 days, the same direction holds (bear edges consistently larger in magnitude than bull edges, for both deposits and withdrawals) but more weakly and less consistently significant. The 1-week horizon is where this pattern is clearest. Full results across all three horizons are in `results/bull_bear_analysis.csv`.
+
+These are raw p-values, not corrected for the overlapping-observations problem described in Limitations, so, same as everywhere else in this document, they likely overstate confidence. The redeeming factor is the short horizon: with far more independent observations than the long-horizon claims that failed outright, the overstatement here should be milder, though not zero (see `scripts/run_bull_bear_analysis.py`).
+
+---
+
 ## Discussion
 
 ### Why did withdrawal edge decay? (evidenced)
@@ -524,6 +549,7 @@ whale_signals/
 │   ├── run_sentiment_pipeline.py  # News sentiment scorer
 │   ├── run_drawdown_analysis.py # Maximum adverse excursion (Section 8)
 │   ├── run_sentiment_whale_consistency.py # News sentiment vs whale activity
+│   ├── run_bull_bear_analysis.py # Whale signal by market regime (Section 9)
 │   └── build_dashboard_data.py # Pre-computes app/dashboard_data.json
 ├── tests/                      # Unit tests
 ├── docs/                       # Design notes, project arc
@@ -553,6 +579,9 @@ python scripts/run_drawdown_analysis.py
 
 # Does whale activity track news sentiment?
 python scripts/run_sentiment_whale_consistency.py
+
+# Whale signal by bull/bear market regime
+python scripts/run_bull_bear_analysis.py
 
 # Rebuild the dashboard's pre-computed data, then launch it
 python scripts/build_dashboard_data.py
