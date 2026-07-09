@@ -6,7 +6,7 @@ This study investigates whether large on-chain Ethereum transactions predict sho
 
 **Key findings:**
 
-The clearest result: the deposit (sell) signal's edge grows monotonically from +1.3% at 24 hours to +12.4% at 6 months, and this pattern was set using 2023-2025 data and confirmed, unchanged, when tested against 2026 data collected afterward.
+The deposit (sell) signal's edge grows monotonically from +1.3% at 24 hours to +12.4% at 6 months, and this pattern was set using 2023-2025 data and confirmed, unchanged, when tested against 2026 data collected afterward.
 
 1. **Whale deposits (sell signals) show a persistent, growing edge that strengthens with horizon, and holds at every transaction size.** The unconditional deposit edge grows from +1.3% at 24h to +4.8% at 1 month to +12.4% at 6 months. This growth over time shows up consistently whether we look at $1M+ or $10M+ deposits alone: both move from roughly flat in 2023 to +2.9% to +3.9% by 2026. Whale sellers think in weeks and months, not hours. (A separate, narrower claim we initially reported, that $10M+ deposits during extreme greed showed a 78.3% hit rate, did not hold up under closer testing; see Discussion.)
 
