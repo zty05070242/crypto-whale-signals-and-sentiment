@@ -39,6 +39,7 @@ The deposit (sell) signal's edge grows monotonically from +1.3% at 24 hours to +
 - [Results: Bull vs Bear Market Regimes](#9-bull-vs-bear-market-regimes)
 - [Discussion](#discussion)
 - [Limitations](#limitations)
+- [Related Academic Literature](#related-academic-literature)
 - [Dashboard](#interactive-dashboard)
 - [Repository Structure](#repository-structure)
 - [How to Run](#how-to-run)
@@ -90,7 +91,7 @@ Prior work on "whale watching" treated it as a price prediction problem: feed wh
 
 ### Transaction Classification (Phase 2)
 - Rule-based labelling for known wallets (exchange deposit, withdrawal, DeFi, wallet-to-wallet)
-- Initially built an ML classifier (Random Forest) to predict categories for unknown wallets, achieving 71% accuracy on a time-based hold-out. After expanding the label dataset from 30 to 52,768 addresses, label coverage reached 62.8%, reducing reliance on the classifier. It is still used for the remaining ~37% of transactions where both sender and receiver are unknown
+- Initially built an ML classifier (Random Forest) to predict categories for unknown wallets, achieving 71% accuracy on a time-based hold-out. After expanding the label dataset from 30 to 52,768 addresses, label coverage reached 62.8%, reducing reliance on the classifier. It is still used for the remaining ~37% of transactions where both sender and receiver are unknown. This is the same task Harlev et al. (2018) tackle for Bitcoin entity types (10 categories, ~200M transactions): their best result was 77% accuracy with Gradient Boosting, not Random Forest, so 71% here is in the same range as published results, not identical to them
 
 Category distribution:
 
@@ -103,11 +104,13 @@ Category distribution:
 
 ### Sentiment Data (Phase 3)
 - **Fear & Greed Index:** Daily composite 0-100 (volatility, volume, social media, BTC dominance)
-- **Binance funding rate:** 8-hourly real-money sentiment. Positive = longs pay shorts (bullish crowd). Negative = shorts pay longs (bearish crowd)
+- **Binance funding rate:** 8-hourly real-money sentiment. Positive = longs pay shorts (bullish crowd). Negative = shorts pay longs (bearish crowd). Alexander et al. (2020) establish the underlying perpetual-swap price-discovery microstructure this rests on
 - **News sentiment:** 5,906 Bitcoin articles scored with VADER. Tested and discarded as uninformative for predicting price. Market-derived sentiment (FnG, funding rate) is far more useful. News sentiment code remains in the repository but is not used in the core analysis
-- **Does whale behaviour track the news?** A separate check, over the roughly 20 months where news coverage overlaps the whale data (Jan 2023 to Sep 2024, 484 days with at least one article): daily news sentiment shows no relationship with daily whale net flow (deposit $ minus withdrawal $). Correlation is essentially zero (r=+0.06, not significant), and bearish news days versus bullish news days show near-identical average whale activity (p=0.95). Whales are neither confirming nor contradicting the public narrative; they appear to act independently of it. This is a second null result for news sentiment in this project: the previous bullet found it does not predict price, and this check finds it does not track whale behaviour either (see `scripts/run_sentiment_whale_consistency.py`)
+- **Does whale behaviour track the news?** A separate check, over the roughly 20 months where news coverage overlaps the whale data (Jan 2023 to Sep 2024, 484 days with at least one article): daily news sentiment shows no relationship with daily whale net flow (deposit $ minus withdrawal $). Correlation is essentially zero (r=+0.06, not significant), and bearish news days versus bullish news days show near-identical average whale activity (p=0.95). Whales are neither confirming nor contradicting the public narrative; they appear to act independently of it. This is a second null result for news sentiment in this project: the previous bullet found it does not predict price, and this check finds it does not track whale behaviour either (see `scripts/run_sentiment_whale_consistency.py`). This reading is consistent with noise-trader theory (De Long et al., 1990; Black, 1986; Shleifer & Summers, 1990), which distinguishes informed traders acting on private or on-chain information from noise traders reacting to public sentiment, though the empirical test itself (whale flow vs VADER-scored news) is this project's own, not drawn from the literature
+- **A caution on the Fear & Greed Index itself:** the evidence on whether CFGI predicts crypto returns is genuinely mixed in the literature. Some studies find a relationship (Łęt et al., 2023; Cavalheiro et al., 2024); a more recent VAR-based study finds the opposite direction of causality, that Bitcoin returns move the index rather than the reverse, with no out-of-sample forecasting gain from sentiment. This project uses FnG only as a conditioning variable (Section 2), never as a standalone predictor, which is the position the mixed evidence actually supports
 
 ### Event Study (Phase 4 - Core Analysis)
+- Hoang & Baur (2022) find Bitcoin exchange reserve inflows/outflows are negatively related to contemporaneous and future returns, using aggregate reserves; Ante & Fiedler (2021) run an individual-transaction event study on large Bitcoin transfers. Both are Bitcoin, aggregate-reserve or transfer-level studies; this project's ETH-specific, individual-transaction design sits in the same tradition but has not been directly replicated in the literature (see [Related Academic Literature](#related-academic-literature))
 - For each whale transaction, compute forward ETH return at 1h, 6h, 24h, 3d, 1w, 2w, 1m, 3m, 6m
 - Measure hit rate: did the whale's action correctly predict price direction?
 - Compare to **base rate** (all hours under the same market condition) to isolate whale-specific edge
@@ -452,6 +455,8 @@ At 24h and 3 days, the same direction holds (bear edges consistently larger in m
 
 These are raw p-values, not corrected for the overlapping-observations problem described in Limitations, so, same as everywhere else in this document, they likely overstate confidence. The redeeming factor is the short horizon: with far more independent observations than the long-horizon claims that failed outright, the overstatement here should be milder, though not zero (see `scripts/run_bull_bear_analysis.py`).
 
+Regime-dependent predictability is well established in equity and commodity markets (Guidolin & Timmermann, 2008; Haase & Neuenkirch, 2023, who find predictability concentrates in turmoil periods, consistent with the stronger bear-market edge found here). No crypto-specific paper testing whale-signal strength by bull/bear regime was found, so this result is a novel contribution consistent with, but not directly replicating, that literature.
+
 ---
 
 ## Discussion
@@ -461,6 +466,8 @@ These are raw p-values, not corrected for the overlapping-observations problem d
 In 2023, withdrawing from an exchange mostly meant a bullish view. By 2025, DeFi had matured enough that people withdraw to stake, provide liquidity, bridge to L2s, or interact with protocols. None of those are directional information for price.
 
 The threshold analysis backs this up. If the problem were just small-time actors diluting the signal, $10M+ withdrawals should still show edge. But the signal is dead at every size, which points to a structural change in the meaning of withdrawals.
+
+The general phenomenon, edges decaying as more actors become aware of them, is well documented (McLean & Pontiff, 2016, find published stock-market anomalies lose 26-58% of their return out-of-sample and post-publication; Vukovic et al., 2026, show crypto market efficiency is itself time-varying). The specific mechanism proposed here, that DeFi maturation is what changed withdrawals, is this project's own hypothesis: no peer-reviewed paper was found that directly documents exchange withdrawals increasingly representing staking, liquidity provision, or L2 bridging rather than self-custody. It should be read as a plausible, testable explanation, not an established finding (see Limitations #2).
 
 ### Why did deposit edge survive and grow?
 
@@ -478,13 +485,13 @@ The deposit edge at 24h is small (+1.3%). At 1 month it is +4.8%. At 6 months, +
 
 ### What happened to the 78.3% claim
 
-We initially reported that $10M+ deposits during extreme greed correctly predicted a 24h price drop 78.3% of the time. Looking more closely at where that number actually came from, the transactions behind it are concentrated in a small number of days, all within a few weeks of 2025, not spread across the dataset. When the events behind a statistic cluster together like that, they are largely describing the same handful of market moves rather than many separate, independent ones. That is the overlapping-observations problem described in the Limitations section, and it is exactly why we do not trust this specific number, even though the underlying transactions and the arithmetic behind it are entirely real.
+We initially reported that $10M+ deposits during extreme greed correctly predicted a 24h price drop 78.3% of the time. Looking more closely at where that number actually came from, the transactions behind it are concentrated in a small number of days, all within a few weeks of 2025, not spread across the dataset. When the events behind a statistic cluster together like that, they are largely describing the same handful of market moves rather than many separate, independent ones. That is the overlapping-observations problem described in the Limitations section, formalised in the event-study literature as cross-sectional dependence from clustered event dates (Kolari & Pynnönen, 2010), and it is exactly why we do not trust this specific number, even though the underlying transactions and the arithmetic behind it are entirely real.
 
 ---
 
 ## Limitations
 
-1. **Long-horizon observations overlap.** At 1-month and longer horizons, thousands of whale events are measuring the same price move. The binomial p-values overstate significance. The edge column (whale vs base rate) is more informative than raw hit rates or p-values at these horizons. See Discussion for a worked example of this problem breaking a specific headline claim.
+1. **Long-horizon observations overlap.** At 1-month and longer horizons, thousands of whale events are measuring the same price move. The binomial p-values overstate significance. The edge column (whale vs base rate) is more informative than raw hit rates or p-values at these horizons. See Discussion for a worked example of this problem breaking a specific headline claim. This is a named, formalised problem in the event-study literature (event-date clustering inflating apparent significance even under low cross-sectional correlation: Kolari & Pynnönen, 2010; generalised to partially overlapping windows, directly relevant to horizons that grow with time, in Kolari, Pape & Pynnönen, 2018), not an ad hoc concern specific to this project. The standard academic remedy is the calendar-time portfolio method or the Kolari-Pynnönen adjusted test statistic; neither is implemented here, which is why this is disclosed as a limitation rather than corrected for.
 
 2. **DeFi dilution is untested.** We hypothesise that withdrawal edge decayed because withdrawals increasingly represent non-directional DeFi activity. Testing would require tracing post-withdrawal activity on-chain (e.g. did the ETH go to a staking contract or a cold wallet?).
 
@@ -493,6 +500,48 @@ We initially reported that $10M+ deposits during extreme greed correctly predict
 4. **Fixed USD threshold ignores ETH price growth.** A $1M transaction was ~833 ETH in 2023 but only ~250 ETH in 2026. The $1M pool gets diluted with smaller actors over time. An ETH-denominated threshold or inflation-adjusted threshold would be more rigorous but harder to compare across years. 
 
 5. **Deposits are not screened for round-tripping.** The "whale sellers think in months" framing assumes a deposit reflects a deliberate long-horizon view, but we do not know why a whale deposited. Checking whether the same address later receives a withdrawal: 24.1% of deposits see the same address withdraw within 24 hours, 29.1% within a week, which is inconsistent with a persistent multi-month directional view for at least a meaningful minority of events. This checks only whether a subsequent withdrawal occurred, not whether the amount matches the deposit, so it cannot distinguish genuine short-term round-tripping from unrelated later activity through the same address. The aggregate statistical pattern (deposits preceding declines) may still hold regardless of individual intent, but the narrative that whales are "making deliberate calls" should be read as a description of the aggregate, not a claim about every individual transaction.
+
+---
+
+## Related Academic Literature
+
+**Event-study clustering and the overlapping-observations problem** 
+- Kolari, J. W., & Pynnönen, S. (2010). "Event Study Testing with Cross-Sectional Correlation of Abnormal Returns." *Review of Financial Studies*, 23(11), 3996-4025. [Peer-reviewed].
+- Kolari, J. W., Pape, B., & Pynnönen, S. (2018). "Event Study Testing with Cross-Sectional Correlation Due to Partially Overlapping Event Windows." SSRN 3167271. [Working paper].
+
+**On-chain whale / exchange-flow activity as a price signal** 
+- Hoang, L. T., & Baur, D. G. (2022). "Loaded for bear: Bitcoin private wallets, exchange reserves and prices." *Journal of Banking & Finance*, 144, 106622. [Peer-reviewed].
+- Ante, L., & Fiedler, I. (2021). "Market reaction to large transfers on the Bitcoin blockchain, do size and motive matter?" *Finance Research Letters*, 39, 101619. [Peer-reviewed]. 
+- Chi, Y., Chu, Q., & Hao, W. (2024). "Return and Volatility Forecasting Using On-Chain Flows in Cryptocurrency Markets." arXiv 2411.06327. [Working paper]. F
+
+**Alpha decay and market maturation** 
+- McLean, R. D., & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?" *Journal of Finance*, 71(1), 5-32. [Peer-reviewed]. 
+- Vukovic, D., et al. (2026). "Time-Varying Efficiency and Predictability in Cryptocurrency Markets: Forward-Looking Dynamics." *International Journal of Finance & Economics*, 31(2), 2229-2248. [Peer-reviewed]. 
+
+**Bull vs bear market regime dependence**
+- Guidolin, M., & Timmermann, A. (2008). "Size and Value Anomalies under Regime Shifts." *Journal of Financial Econometrics*, 6(1), 1-48. [Peer-reviewed].
+- Haase, F., & Neuenkirch, M. (2023). "Predictability of bull and bear markets: A new look at forecasting stock market regimes (and returns) in the US." *International Journal of Forecasting*, 39(2), 587-605. [Peer-reviewed].
+- Kirby, C. (2023). "A closer look at the regime-switching evidence of bull and bear markets." *Finance Research Letters*, 52, 103369. [Peer-reviewed]. 
+
+**Sentiment proxies: funding rate and Fear & Greed Index**
+- Alexander, C., Choi, J., Park, H., & Sohn, S. (2020). "BitMEX bitcoin derivatives: Price discovery, informational efficiency, and hedging effectiveness." *Journal of Futures Markets*, 40(1), 23-43. [Peer-reviewed].
+- Łęt, B., Sobański, K., Świder, W., & Włosik, K. (2023). "Investor Sentiment and Efficiency of the Cryptocurrency Market: The Case of the Crypto Fear & Greed Index." In *Eurasian Business and Economics Perspectives*, vol. 25, Springer. [Peer-reviewed].
+- Cavalheiro, E. A., Vieira, K. M., & Thue, P. S. (2024). "The impact of investor greed and fear on cryptocurrency returns: a Granger causality analysis of Bitcoin and Ethereum." *Review of Behavioral Finance*, 16(5), 819-835. [Peer-reviewed].
+- Gessie, L. (2026). "Do bitcoin returns move sentiment? Evidence from the crypto fear & greed index." ScienceDirect, published 13 Jan 2026. [Peer-reviewed, critical; exact journal name and volume/issue not independently confirmed].
+
+**Machine learning for wallet/address classification**
+- Harlev, M. A., Sun Yin, H., Langenheldt, K. C., Mukkamala, R. R., & Vatrapu, R. (2018). "Breaking Bad: De-Anonymising Entity Types on the Bitcoin Blockchain Using Supervised Machine Learning." *Proceedings of the 51st Hawaii International Conference on System Sciences (HICSS)*, 3497-3506. [Peer-reviewed/conference].
+
+**Noise-trader theory**
+- De Long, J. B., Shleifer, A., Summers, L. H., & Waldmann, R. J. (1990). "Noise Trader Risk in Financial Markets." *Journal of Political Economy*, 98(4), 703-738. [Peer-reviewed]. 
+- Black, F. (1986). "Noise." *Journal of Finance*, 41(3), 529-543. [Peer-reviewed].
+- Shleifer, A., & Summers, L. H. (1990). "The Noise Trader Approach to Finance." *Journal of Economic Perspectives*, 4(2), 19-33. [Peer-reviewed].
+
+**Maximum Adverse Excursion / path-dependent drawdown**
+- Sweeney, J. L. (1997). *Maximum Adverse Excursion: Analyzing Price Fluctuations for Trading Management.* John Wiley & Sons. [Practitioner/book]. 
+- Grossman, S. J., & Zhou, Z. (1993). "Optimal Investment Strategies for Controlling Drawdowns." *Mathematical Finance*, 3(3), 241-276. [Peer-reviewed]. 
+- Magdon-Ismail, M., Atiya, A. F., Pratap, A., & Abu-Mostafa, Y. S. (2004). "On the Maximum Drawdown of a Brownian Motion." *Journal of Applied Probability*, 41(1), 147-161. [Peer-reviewed].
+- Chekhlov, A., Uryasev, S., & Zabarankin, M. (2005). "Drawdown Measure in Portfolio Optimization." *International Journal of Theoretical and Applied Finance*, 8(1), 13-58. [Peer-reviewed].
 
 ---
 
