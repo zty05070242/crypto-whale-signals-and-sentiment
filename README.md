@@ -506,42 +506,42 @@ We initially reported that $10M+ deposits during extreme greed correctly predict
 ## Related Academic Literature
 
 **Event-study clustering and the overlapping-observations problem** 
-- Kolari, J. W., & Pynnönen, S. (2010). "Event Study Testing with Cross-Sectional Correlation of Abnormal Returns." *Review of Financial Studies*, 23(11), 3996-4025. [Peer-reviewed].
+- Kolari, J. W., & Pynnönen, S. (2010). "Event Study Testing with Cross-Sectional Correlation of Abnormal Returns." *Review of Financial Studies*, 23(11), 3996-4025.
 - Kolari, J. W., Pape, B., & Pynnönen, S. (2018). "Event Study Testing with Cross-Sectional Correlation Due to Partially Overlapping Event Windows." SSRN 3167271. [Working paper].
 
 **On-chain whale / exchange-flow activity as a price signal** 
-- Hoang, L. T., & Baur, D. G. (2022). "Loaded for bear: Bitcoin private wallets, exchange reserves and prices." *Journal of Banking & Finance*, 144, 106622. [Peer-reviewed].
-- Ante, L., & Fiedler, I. (2021). "Market reaction to large transfers on the Bitcoin blockchain, do size and motive matter?" *Finance Research Letters*, 39, 101619. [Peer-reviewed]. 
+- Hoang, L. T., & Baur, D. G. (2022). "Loaded for bear: Bitcoin private wallets, exchange reserves and prices." *Journal of Banking & Finance*, 144, 106622.
+- Ante, L., & Fiedler, I. (2021). "Market reaction to large transfers on the Bitcoin blockchain, do size and motive matter?" *Finance Research Letters*, 39, 101619.
 - Chi, Y., Chu, Q., & Hao, W. (2024). "Return and Volatility Forecasting Using On-Chain Flows in Cryptocurrency Markets." arXiv 2411.06327. [Working paper].
 
 **Alpha decay and market maturation** 
-- McLean, R. D., & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?" *Journal of Finance*, 71(1), 5-32. [Peer-reviewed]. 
-- Vukovic, D., et al. (2026). "Time-Varying Efficiency and Predictability in Cryptocurrency Markets: Forward-Looking Dynamics." *International Journal of Finance & Economics*, 31(2), 2229-2248. [Peer-reviewed]. 
+- McLean, R. D., & Pontiff, J. (2016). "Does Academic Research Destroy Stock Return Predictability?" *Journal of Finance*, 71(1), 5-32.
+- Vukovic, D., et al. (2026). "Time-Varying Efficiency and Predictability in Cryptocurrency Markets: Forward-Looking Dynamics." *International Journal of Finance & Economics*, 31(2), 2229-2248.
 
 **Bull vs bear market regime dependence**
-- Guidolin, M., & Timmermann, A. (2008). "Size and Value Anomalies under Regime Shifts." *Journal of Financial Econometrics*, 6(1), 1-48. [Peer-reviewed].
-- Haase, F., & Neuenkirch, M. (2023). "Predictability of bull and bear markets: A new look at forecasting stock market regimes (and returns) in the US." *International Journal of Forecasting*, 39(2), 587-605. [Peer-reviewed].
-- Kirby, C. (2023). "A closer look at the regime-switching evidence of bull and bear markets." *Finance Research Letters*, 52, 103369. [Peer-reviewed]. 
+- Guidolin, M., & Timmermann, A. (2008). "Size and Value Anomalies under Regime Shifts." *Journal of Financial Econometrics*, 6(1), 1-48.
+- Haase, F., & Neuenkirch, M. (2023). "Predictability of bull and bear markets: A new look at forecasting stock market regimes (and returns) in the US." *International Journal of Forecasting*, 39(2), 587-605.
+- Kirby, C. (2023). "A closer look at the regime-switching evidence of bull and bear markets." *Finance Research Letters*, 52, 103369.
 
 **Sentiment proxies: funding rate and Fear & Greed Index**
-- Alexander, C., Choi, J., Park, H., & Sohn, S. (2020). "BitMEX bitcoin derivatives: Price discovery, informational efficiency, and hedging effectiveness." *Journal of Futures Markets*, 40(1), 23-43. [Peer-reviewed].
-- Łęt, B., Sobański, K., Świder, W., & Włosik, K. (2023). "Investor Sentiment and Efficiency of the Cryptocurrency Market: The Case of the Crypto Fear & Greed Index." In *Eurasian Business and Economics Perspectives*, vol. 25, Springer. [Peer-reviewed].
-- Cavalheiro, E. A., Vieira, K. M., & Thue, P. S. (2024). "The impact of investor greed and fear on cryptocurrency returns: a Granger causality analysis of Bitcoin and Ethereum." *Review of Behavioral Finance*, 16(5), 819-835. [Peer-reviewed].
-- Gessie, L. (2026). "Do bitcoin returns move sentiment? Evidence from the crypto fear & greed index." ScienceDirect, published 13 Jan 2026. [Peer-reviewed, critical; exact journal name and volume/issue not independently confirmed].
+- Alexander, C., Choi, J., Park, H., & Sohn, S. (2020). "BitMEX bitcoin derivatives: Price discovery, informational efficiency, and hedging effectiveness." *Journal of Futures Markets*, 40(1), 23-43.
+- Łęt, B., Sobański, K., Świder, W., & Włosik, K. (2023). "Investor Sentiment and Efficiency of the Cryptocurrency Market: The Case of the Crypto Fear & Greed Index." In *Eurasian Business and Economics Perspectives*, vol. 25, Springer.
+- Cavalheiro, E. A., Vieira, K. M., & Thue, P. S. (2024). "The impact of investor greed and fear on cryptocurrency returns: a Granger causality analysis of Bitcoin and Ethereum." *Review of Behavioral Finance*, 16(5), 819-835.
+- Gessie, L. (2026). "Do bitcoin returns move sentiment? Evidence from the crypto fear & greed index." ScienceDirect, published 13 Jan 2026. [Critical; exact journal name and volume/issue not independently confirmed].
 
 **Machine learning for wallet/address classification**
-- Harlev, M. A., Sun Yin, H., Langenheldt, K. C., Mukkamala, R. R., & Vatrapu, R. (2018). "Breaking Bad: De-Anonymising Entity Types on the Bitcoin Blockchain Using Supervised Machine Learning." *Proceedings of the 51st Hawaii International Conference on System Sciences (HICSS)*, 3497-3506. [Peer-reviewed/conference].
+- Harlev, M. A., Sun Yin, H., Langenheldt, K. C., Mukkamala, R. R., & Vatrapu, R. (2018). "Breaking Bad: De-Anonymising Entity Types on the Bitcoin Blockchain Using Supervised Machine Learning." *Proceedings of the 51st Hawaii International Conference on System Sciences (HICSS)*, 3497-3506. [Conference].
 
 **Noise-trader theory**
-- De Long, J. B., Shleifer, A., Summers, L. H., & Waldmann, R. J. (1990). "Noise Trader Risk in Financial Markets." *Journal of Political Economy*, 98(4), 703-738. [Peer-reviewed]. 
-- Black, F. (1986). "Noise." *Journal of Finance*, 41(3), 529-543. [Peer-reviewed].
-- Shleifer, A., & Summers, L. H. (1990). "The Noise Trader Approach to Finance." *Journal of Economic Perspectives*, 4(2), 19-33. [Peer-reviewed].
+- De Long, J. B., Shleifer, A., Summers, L. H., & Waldmann, R. J. (1990). "Noise Trader Risk in Financial Markets." *Journal of Political Economy*, 98(4), 703-738.
+- Black, F. (1986). "Noise." *Journal of Finance*, 41(3), 529-543.
+- Shleifer, A., & Summers, L. H. (1990). "The Noise Trader Approach to Finance." *Journal of Economic Perspectives*, 4(2), 19-33.
 
 **Maximum Adverse Excursion / path-dependent drawdown**
 - Sweeney, J. L. (1997). *Maximum Adverse Excursion: Analyzing Price Fluctuations for Trading Management.* John Wiley & Sons. [Practitioner/book]. 
-- Grossman, S. J., & Zhou, Z. (1993). "Optimal Investment Strategies for Controlling Drawdowns." *Mathematical Finance*, 3(3), 241-276. [Peer-reviewed]. 
-- Magdon-Ismail, M., Atiya, A. F., Pratap, A., & Abu-Mostafa, Y. S. (2004). "On the Maximum Drawdown of a Brownian Motion." *Journal of Applied Probability*, 41(1), 147-161. [Peer-reviewed].
-- Chekhlov, A., Uryasev, S., & Zabarankin, M. (2005). "Drawdown Measure in Portfolio Optimization." *International Journal of Theoretical and Applied Finance*, 8(1), 13-58. [Peer-reviewed].
+- Grossman, S. J., & Zhou, Z. (1993). "Optimal Investment Strategies for Controlling Drawdowns." *Mathematical Finance*, 3(3), 241-276.
+- Magdon-Ismail, M., Atiya, A. F., Pratap, A., & Abu-Mostafa, Y. S. (2004). "On the Maximum Drawdown of a Brownian Motion." *Journal of Applied Probability*, 41(1), 147-161.
+- Chekhlov, A., Uryasev, S., & Zabarankin, M. (2005). "Drawdown Measure in Portfolio Optimization." *International Journal of Theoretical and Applied Finance*, 8(1), 13-58.
 
 ---
 
