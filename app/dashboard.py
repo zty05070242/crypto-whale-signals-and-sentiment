@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 st.set_page_config(
@@ -475,10 +476,197 @@ fig_asym.update_layout(
 st.plotly_chart(style_fig(fig_asym), width='stretch')
 
 # ---------------------------------------------------------------------------
-# Section 7: Limitations
+# Section 7: Signal timeline (when it fires, when it pays)
 # ---------------------------------------------------------------------------
 
-st.header("07 // Limitations")
+st.header("07 // When the signal fires, and when it pays")
+st.markdown(
+    f"<span style='color:{MUTED}'>Monthly view of the deposit (sell) signal at "
+    "the base \\$1M+ threshold. Top: ETH price, with bear markets shaded. "
+    "Bottom: how many deposits fired each month, and whether that month's 24h "
+    "calls beat the month's own base rate. The edge is not spread evenly "
+    "through time; it clusters.</span>",
+    unsafe_allow_html=True,
+)
+
+TL = DATA["timeline"]
+BB = DATA["bull_bear"]
+
+# Monthly 24h edge = whale hit rate minus that same month's base rate, so a
+# trending month does not get credited to the whales.
+tl_edge = [
+    (h - b) if (h is not None and b is not None) else None
+    for h, b in zip(TL["hit_24h"], TL["base_24h"])
+]
+
+# Three stacked panels, each with its own y-axis, sharing one time axis --
+# deliberately NOT a dual-axis chart, since overlaying a bar count and an
+# edge line on two different scales in one panel invites misreading
+# correlation that is not really there.
+fig_tl = make_subplots(
+    rows=3, cols=1, shared_xaxes=True,
+    row_heights=[0.34, 0.28, 0.38], vertical_spacing=0.06,
+    subplot_titles=("ETH PRICE", "SIGNALS FIRED / MONTH ($1M+ deposits)",
+                    "THAT MONTH'S 24h EDGE (whale hit rate minus base rate)"),
+)
+fig_tl.add_trace(go.Scatter(
+    x=TL["months"], y=TL["eth_close"], name="ETH close",
+    line=dict(color=BLUE, width=1.6), mode="lines", showlegend=False,
+), row=1, col=1)
+fig_tl.add_trace(go.Bar(
+    x=TL["months"], y=TL["n"], name="deposits fired",
+    marker_color=GREY, marker_line_width=0, opacity=0.8, showlegend=False,
+), row=2, col=1)
+fig_tl.add_trace(go.Scatter(
+    x=TL["months"], y=tl_edge, name="monthly 24h edge",
+    mode="lines+markers", line=dict(color=GREEN, width=1.6),
+    marker=dict(size=5), connectgaps=False, showlegend=False,
+), row=3, col=1)
+fig_tl.add_hline(y=0, line_dash="dot", line_color=MUTED, row=3, col=1)
+
+# Shade bear-market spans (regime segments from the Section 9 state machine)
+# across all three panels so the eye can line up price, volume, and edge.
+for seg in BB["segments"]:
+    if seg["regime"] == "bear":
+        for r in (1, 2, 3):
+            fig_tl.add_vrect(x0=seg["start"], x1=seg["end"], fillcolor=RED,
+                             opacity=0.10, line_width=0, row=r, col=1)
+
+fig_tl.update_layout(title="DEPOSIT SIGNAL CADENCE // MONTHLY (bear markets shaded red)")
+fig_tl = style_fig(fig_tl, 680)
+fig_tl.update_annotations(font=dict(family=MONO, color=MUTED, size=11))
+fig_tl.update_yaxes(title_text="USD", row=1, col=1)
+fig_tl.update_yaxes(title_text="COUNT", row=2, col=1)
+fig_tl.update_yaxes(title_text="EDGE (pp)", row=3, col=1)
+st.plotly_chart(fig_tl, width='stretch')
+st.caption(
+    "Read top to bottom: ETH price for context, how many deposits fired that "
+    "month, then whether those deposits beat that month's own base rate. "
+    "Signal volume roughly tracks market activity; the bottom panel spends "
+    "more time above zero in and around the shaded bear stretches, which is "
+    "what Section 08 quantifies directly."
+)
+
+# ---------------------------------------------------------------------------
+# Section 8: Bull vs bear regimes
+# ---------------------------------------------------------------------------
+
+st.header("08 // Bull vs bear regimes")
+st.markdown(
+    f"<span style='color:{MUTED}'>Standard 20% drawdown/rally regime "
+    f"definition, not tuned: {BB['hours']['bull']:,} bull hours vs "
+    f"{BB['hours']['bear']:,} bear hours across {len(BB['segments'])} "
+    "segments. Deposit edge is stronger in bear markets at every size tested; "
+    "withdrawals get more wrong exactly when buying conviction should matter "
+    "most.</span>",
+    unsafe_allow_html=True,
+)
+
+bb_horizon = st.radio("HORIZON", BB["horizons"],
+                      index=BB["horizons"].index("1w"), horizontal=True)
+tab_bb_dep, tab_bb_wd = st.tabs(["DEPOSITS (sell)", "WITHDRAWALS (buy)"])
+
+
+def bull_bear_bars(category: str, title: str):
+    """Grouped bull-vs-bear edge bars per threshold, with n in the hover."""
+    rows = [r for r in BB["edges"]
+            if r["category"] == category and r["horizon"] == bb_horizon]
+    by_key = {(r["threshold"], r["regime"]): r for r in rows}
+    labels = [f"${t // 1_000_000}M+" for t in BB["thresholds"]]
+
+    fig = go.Figure()
+    for reg, colour in (("bull", GREEN), ("bear", RED)):
+        cells = [by_key.get((t, reg)) for t in BB["thresholds"]]
+        fig.add_trace(go.Bar(
+            x=labels, y=[z(c["edge"]) if c else 0 for c in cells], name=reg,
+            marker_color=colour, marker_line_color=BORDER, marker_line_width=1,
+            text=[f"{z(c['edge']):+.1f}" if c else "" for c in cells],
+            textposition="outside", textfont=dict(family=MONO, color=TEXT),
+            customdata=[c["n"] if c else 0 for c in cells],
+            hovertemplate="%{x} " + reg + ": %{y:+.1f}pp (n=%{customdata:,})<extra></extra>",
+        ))
+    fig.add_hline(y=0, line_dash="dot", line_color=MUTED)
+    fig.update_layout(title=title, xaxis_title="MIN TX SIZE",
+                      yaxis_title="EDGE (pp)", barmode="group")
+    st.plotly_chart(style_fig(fig, 380), width='stretch')
+
+
+with tab_bb_dep:
+    bull_bear_bars("deposit", f"DEPOSIT EDGE BY REGIME ({bb_horizon}, unconditional)")
+
+with tab_bb_wd:
+    bull_bear_bars("withdrawal", f"WITHDRAWAL EDGE BY REGIME ({bb_horizon}, unconditional)")
+
+st.caption(
+    "Bar colour = market regime (green bull, red bear), not good/bad: for "
+    "deposits, the taller bear bars are the finding. Raw p-values, uncorrected "
+    "for overlapping observations; the short horizons keep the overstatement "
+    "milder than the long-horizon claims that failed (see README Section 9)."
+)
+
+# ---------------------------------------------------------------------------
+# Section 9: Drawdown before the payoff (MAE)
+# ---------------------------------------------------------------------------
+
+st.header("09 // Drawdown before the payoff")
+st.markdown(
+    f"<span style='color:{MUTED}'>Long-horizon returns only report the "
+    "endpoint. Maximum adverse excursion (MAE) is the worst unrealised loss a "
+    "trader following the sell signal would have marked-to-market along the "
+    "way, computed from the full hourly price path. Shown for trades where the "
+    "signal was EVENTUALLY RIGHT; being right does not mean it was "
+    "survivable.</span>",
+    unsafe_allow_html=True,
+)
+
+DD = DATA["drawdown"]
+tab_dd_u, tab_dd_g = st.tabs(["UNCONDITIONAL", "EXTREME GREED"])
+
+
+def mae_chart(condition: str):
+    """Median / mean / P90 MAE bars by horizon, eventually-correct trades."""
+    rows = {r["horizon"]: r for r in DD["rows"]
+            if r["condition"] == condition and r["outcome"] == "hit"}
+    hs = [h for h in DD["horizons"] if h in rows]
+    fig = go.Figure()
+    for field, name, colour in (("median_mae", "median", GREY),
+                                ("mean_mae", "mean", BLUE),
+                                ("p90_mae", "P90 (worst decile)", RED)):
+        fig.add_trace(go.Bar(
+            x=hs, y=[z(rows[h][field]) for h in hs], name=name,
+            marker_color=colour, marker_line_color=BORDER, marker_line_width=1,
+            text=[f"{z(rows[h][field]):.1f}" for h in hs],
+            textposition="outside", textfont=dict(family=MONO, size=10, color=TEXT),
+        ))
+    fig.update_layout(
+        title=f"MAE ON EVENTUALLY-CORRECT DEPOSIT TRADES ({condition.upper()})",
+        xaxis_title="HOLDING HORIZON", yaxis_title="ADVERSE MOVE (%)",
+        barmode="group",
+    )
+    st.plotly_chart(style_fig(fig, 400), width='stretch')
+    six = rows.get("6m")
+    if six:
+        st.caption(
+            f"At 6 months ({condition}), an eventually-correct trade endured a "
+            f"{z(six['mean_mae']):.1f}% adverse move on average before paying "
+            f"off; the worst decile endured {z(six['p90_mae']):.1f}%. "
+            "Eventually-WRONG trades are worse on both counts (unconditional "
+            "6-month misses averaged 80.1% MAE). No stop-loss rule is "
+            "simulated; MAE is the pain, not a strategy."
+        )
+
+
+with tab_dd_u:
+    mae_chart("unconditional")
+
+with tab_dd_g:
+    mae_chart("extreme greed")
+
+# ---------------------------------------------------------------------------
+# Section 10: Limitations
+# ---------------------------------------------------------------------------
+
+st.header("10 // Limitations")
 st.markdown(r"""
 1. **Backtested, not live-tested.** Past results do not guarantee future ones.
    If participants start following deposit signals, the edge would likely arbitrage away.
@@ -487,7 +675,8 @@ st.markdown(r"""
 3. **Long-horizon windows overlap.** At 1 month+, thousands of events measure the
    same price move. Hit rates are informative but p-values overstate significance.
 4. **No stop-loss modelling.** Long-horizon results assume holding to maturity.
-   A trade that ends +5% may have been -20% along the way.
+   Section 09 measures how bad the ride got (MAE), but no concrete stop-loss
+   rule is simulated.
 5. **Fixed USD threshold ignores ETH price growth.** \$1M was ~833 ETH in 2023
    but only ~250 ETH in 2026, diluting the pool with smaller actors over time.
 6. **The withdrawal signal is dead.** Any strategy built on whale withdrawals

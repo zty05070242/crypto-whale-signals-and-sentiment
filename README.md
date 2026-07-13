@@ -573,10 +573,13 @@ python scripts/build_dashboard_data.py
 streamlit run app/dashboard.py
 ```
 
-Seven sections: deposit edge by horizon (1h to 6m), yearly stability (alpha
+Ten sections: deposit edge by horizon (1h to 6m), yearly stability (alpha
 decay, horizon-selectable), threshold sensitivity (horizon-selectable),
 sentiment-conditioned hit rates, a return-distribution regime explorer,
-the deposit-vs-withdrawal asymmetry by year (horizon-selectable), and
+the deposit-vs-withdrawal asymmetry by year (horizon-selectable), a monthly
+signal timeline showing when deposits fire and when they pay (with bear
+markets shaded), the bull-vs-bear regime split (Section 9,
+horizon-switchable), drawdown before the payoff (Section 8's MAE), and
 limitations.
 
 The dashboard does not read the raw dataset at runtime. `scripts/build_dashboard_data.py`
