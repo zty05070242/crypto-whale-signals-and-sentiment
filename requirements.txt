@@ -3,9 +3,8 @@ pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
 
-# Blockchain access
-web3>=6.11.0               # Direct Ethereum chain queries
-requests>=2.31.0           # Etherscan and CryptoPanic HTTP
+# HTTP
+requests>=2.31.0           # Dune, CoinGecko, CryptoPanic, GDELT
 
 # Reddit
 praw>=7.7.0
