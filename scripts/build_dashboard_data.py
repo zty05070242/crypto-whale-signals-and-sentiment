@@ -520,6 +520,10 @@ def main() -> None:
             "date_max": whale["timestamp_utc"].max().strftime("%b %Y"),
             "n_labels": 52768,
             "base_rate_24h": r2(base["all_down_24h"]),
+            # Phase 2 wallet-classifier accuracy, a time-based hold-out (see
+            # scripts/run_phase2_classifier_eval.py). Not re-run here since it
+            # is a one-off model-evaluation step, not an event-study aggregate.
+            "classifier_accuracy": 67.7,
         },
         "thresholds": THRESHOLDS,
         "years": years,

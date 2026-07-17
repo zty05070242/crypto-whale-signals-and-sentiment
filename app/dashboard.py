@@ -204,19 +204,13 @@ st.markdown(
 )
 st.markdown('<hr class="term-rule">', unsafe_allow_html=True)
 
-base_24h = META["base_rate_24h"]
-dep_hit = z(B["deposit_hit_24h"])
-greed_hit = z(B["greed_deposit_hit_24h"])
-
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 col1.metric("Transactions", f"{B['n_filtered']:,}")
-col2.metric("Deposit Hit 24h", f"{dep_hit:.1f}%",
-            delta=f"{dep_hit - base_24h:+.1f}pp",
-            help="Share of deposits followed by a 24h price drop, vs base rate.")
-col3.metric("Deposits in Greed", f"{greed_hit:.1f}%",
-            help="Whale deposits when Fear & Greed > 75.")
-col4.metric("Base Rate 24h", f"{base_24h:.1f}%",
-            help="Any random hour: share followed by a 24h drop.")
+col2.metric("Data Span", "3.5 Years",
+            help=f"{META['date_min']} to {META['date_max']}")
+col3.metric("Classifier Accuracy", f"{META['classifier_accuracy']:.1f}%",
+            help="Phase 2 wallet-category classifier (Random Forest), "
+                 "time-based hold-out. See scripts/run_phase2_classifier_eval.py.")
 
 # ---------------------------------------------------------------------------
 # Section 1: Deposit edge across horizons
@@ -669,7 +663,6 @@ with tab_dd_g:
 st.header("10 // Limitations")
 st.markdown(r"""
 1. **Backtested, not live-tested.** Past results do not guarantee future ones.
-   If participants start following deposit signals, the edge would likely arbitrage away.
 2. **Modest at short horizons.** A +1 to +4pp edge at 24h is statistically
    significant but economically marginal after costs and slippage.
 3. **Long-horizon windows overlap.** At 1 month+, thousands of events measure the
